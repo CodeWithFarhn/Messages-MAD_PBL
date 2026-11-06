@@ -14,12 +14,18 @@ import org.fossify.messages.interfaces.ConversationsDao
 import org.fossify.messages.interfaces.DraftsDao
 import org.fossify.messages.interfaces.MessageAttachmentsDao
 import org.fossify.messages.interfaces.MessagesDao
+import org.fossify.messages.interfaces.SpamMessagesDao
+import org.fossify.messages.interfaces.SpamSendersDao
+import org.fossify.messages.interfaces.StarredMessagesDao
 import org.fossify.messages.models.Attachment
 import org.fossify.messages.models.Conversation
 import org.fossify.messages.models.Draft
 import org.fossify.messages.models.Message
 import org.fossify.messages.models.MessageAttachment
 import org.fossify.messages.models.RecycleBinMessage
+import org.fossify.messages.models.SpamMessage
+import org.fossify.messages.models.SpamSender
+import org.fossify.messages.models.StarredMessage
 
 @Database(
     entities = [
@@ -28,9 +34,12 @@ import org.fossify.messages.models.RecycleBinMessage
         MessageAttachment::class,
         Message::class,
         RecycleBinMessage::class,
-        Draft::class
+        Draft::class,
+        SpamMessage::class,
+        SpamSender::class,
+        StarredMessage::class
     ],
-    version = 11
+    version = 12
 )
 @TypeConverters(Converters::class)
 abstract class MessagesDatabase : RoomDatabase() {
@@ -44,6 +53,12 @@ abstract class MessagesDatabase : RoomDatabase() {
     abstract fun MessagesDao(): MessagesDao
 
     abstract fun DraftsDao(): DraftsDao
+
+    abstract fun SpamMessagesDao(): SpamMessagesDao
+
+    abstract fun SpamSendersDao(): SpamSendersDao
+
+    abstract fun StarredMessagesDao(): StarredMessagesDao
 
     companion object {
         private var db: MessagesDatabase? = null
@@ -68,6 +83,7 @@ abstract class MessagesDatabase : RoomDatabase() {
                             .addMigrations(MIGRATION_8_9)
                             .addMigrations(MIGRATION_9_10)
                             .addMigrations(MIGRATION_10_11)
+                            .addMigrations(MIGRATION_11_12)
                             .build()
                     }
                 }
@@ -172,6 +188,16 @@ abstract class MessagesDatabase : RoomDatabase() {
                     "CREATE INDEX IF NOT EXISTS `index_messages_thread_id_date` " +
                         "ON `messages` (`thread_id`, `date`)"
                 )
+            }
+        }
+
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.apply {
+                    execSQL("CREATE TABLE IF NOT EXISTS `spam_messages` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `address` TEXT NOT NULL, `body` TEXT NOT NULL, `date` INTEGER NOT NULL, `subscription_id` INTEGER NOT NULL, `score` INTEGER NOT NULL, `reasons` TEXT NOT NULL)")
+                    execSQL("CREATE TABLE IF NOT EXISTS `spam_senders` (`address` TEXT NOT NULL, `status` TEXT NOT NULL, PRIMARY KEY(`address`))")
+                    execSQL("CREATE TABLE IF NOT EXISTS `starred_messages` (`message_id` INTEGER NOT NULL, `is_mms` INTEGER NOT NULL, `starred_ts` INTEGER NOT NULL, PRIMARY KEY(`message_id`, `is_mms`))")
+                }
             }
         }
     }

@@ -65,6 +65,9 @@ import org.fossify.messages.interfaces.ConversationsDao
 import org.fossify.messages.interfaces.DraftsDao
 import org.fossify.messages.interfaces.MessageAttachmentsDao
 import org.fossify.messages.interfaces.MessagesDao
+import org.fossify.messages.interfaces.SpamMessagesDao
+import org.fossify.messages.interfaces.SpamSendersDao
+import org.fossify.messages.interfaces.StarredMessagesDao
 import org.fossify.messages.messaging.MessagingUtils
 import org.fossify.messages.messaging.MessagingUtils.Companion.ADDRESS_SEPARATOR
 import org.fossify.messages.messaging.SmsSender
@@ -99,6 +102,15 @@ val Context.messagesDB: MessagesDao
 
 val Context.draftsDB: DraftsDao
     get() = getMessagesDB().DraftsDao()
+
+val Context.spamMessagesDB: SpamMessagesDao
+    get() = getMessagesDB().SpamMessagesDao()
+
+val Context.spamSendersDB: SpamSendersDao
+    get() = getMessagesDB().SpamSendersDao()
+
+val Context.starredMessagesDB: StarredMessagesDao
+    get() = getMessagesDB().StarredMessagesDao()
 
 val Context.notificationHelper
     get() = NotificationHelper(this)
