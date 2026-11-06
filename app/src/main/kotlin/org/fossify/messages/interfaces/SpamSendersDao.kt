@@ -23,3 +23,4 @@ interface SpamSendersDao {
     @Query("DELETE FROM spam_senders")
     fun deleteAll(): Int
 }
+

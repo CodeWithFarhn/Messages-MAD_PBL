@@ -12,3 +12,4 @@ data class StarredMessage(
     @ColumnInfo(name = "is_mms") val isMms: Boolean,
     @ColumnInfo(name = "starred_ts") val starredTs: Long,
 )
+

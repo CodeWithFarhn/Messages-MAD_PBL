@@ -26,3 +26,4 @@ interface SpamMessagesDao {
     @Query("DELETE FROM spam_messages")
     fun deleteAll(): Int
 }
+

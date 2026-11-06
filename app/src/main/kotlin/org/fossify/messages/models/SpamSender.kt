@@ -14,3 +14,4 @@ data class SpamSender(
         const val STATUS_SPAM = "SPAM"
     }
 }
+

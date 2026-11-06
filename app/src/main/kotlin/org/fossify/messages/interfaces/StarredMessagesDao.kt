@@ -26,3 +26,4 @@ interface StarredMessagesDao {
     @Query("DELETE FROM starred_messages")
     fun deleteAll(): Int
 }
+

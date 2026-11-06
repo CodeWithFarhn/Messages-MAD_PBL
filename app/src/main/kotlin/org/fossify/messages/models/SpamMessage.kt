@@ -14,3 +14,4 @@ data class SpamMessage(
     @ColumnInfo(name = "score") val score: Int,
     @ColumnInfo(name = "reasons") val reasons: String,
 )
+

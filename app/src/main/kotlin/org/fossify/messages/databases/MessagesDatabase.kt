@@ -194,9 +194,29 @@ abstract class MessagesDatabase : RoomDatabase() {
         private val MIGRATION_11_12 = object : Migration(11, 12) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.apply {
-                    execSQL("CREATE TABLE IF NOT EXISTS `spam_messages` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `address` TEXT NOT NULL, `body` TEXT NOT NULL, `date` INTEGER NOT NULL, `subscription_id` INTEGER NOT NULL, `score` INTEGER NOT NULL, `reasons` TEXT NOT NULL)")
-                    execSQL("CREATE TABLE IF NOT EXISTS `spam_senders` (`address` TEXT NOT NULL, `status` TEXT NOT NULL, PRIMARY KEY(`address`))")
-                    execSQL("CREATE TABLE IF NOT EXISTS `starred_messages` (`message_id` INTEGER NOT NULL, `is_mms` INTEGER NOT NULL, `starred_ts` INTEGER NOT NULL, PRIMARY KEY(`message_id`, `is_mms`))")
+                    execSQL(
+                        "CREATE TABLE IF NOT EXISTS `spam_messages` (" +
+                            "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                            "`address` TEXT NOT NULL, " +
+                            "`body` TEXT NOT NULL, " +
+                            "`date` INTEGER NOT NULL, " +
+                            "`subscription_id` INTEGER NOT NULL, " +
+                            "`score` INTEGER NOT NULL, " +
+                            "`reasons` TEXT NOT NULL)"
+                    )
+                    execSQL(
+                        "CREATE TABLE IF NOT EXISTS `spam_senders` (" +
+                            "`address` TEXT NOT NULL, " +
+                            "`status` TEXT NOT NULL, " +
+                            "PRIMARY KEY(`address`))"
+                    )
+                    execSQL(
+                        "CREATE TABLE IF NOT EXISTS `starred_messages` (" +
+                            "`message_id` INTEGER NOT NULL, " +
+                            "`is_mms` INTEGER NOT NULL, " +
+                            "`starred_ts` INTEGER NOT NULL, " +
+                            "PRIMARY KEY(`message_id`, `is_mms`))"
+                    )
                 }
             }
         }
