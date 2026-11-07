@@ -7,7 +7,7 @@ import kotlin.math.min
 /**
  * Pure Kotlin spam scorer for SMS messages.
  * Evaluates message body and sender address using heuristics, keyword dictionaries,
- * and pattern reductions.
+ * impersonation detection, and pattern reductions.
  *
  * Designed to run without Android dependencies so that it can be executed in pure JVM unit tests.
  */
@@ -24,6 +24,7 @@ object SpamScorer {
     const val WEIGHT_MONEY_PRIZE = 20
     const val WEIGHT_URGENCY = 20
     const val WEIGHT_CREDENTIAL_REQUEST = 40
+    const val WEIGHT_IMPERSONATION = 30
     const val WEIGHT_SENDER_SHAPE = 10
     const val WEIGHT_CAPITALS_EXCLAMATION = 10
 
@@ -37,6 +38,7 @@ object SpamScorer {
     private const val MIN_EXCLAMATION_COUNT = 3
     private const val MIN_SHORTCODE_LENGTH = 3
     private const val MAX_SHORTCODE_LENGTH = 6
+    private const val MIN_MOBILE_NUMBER_LENGTH = 10
     private const val MAX_SCORE = 100
 
     data class SpamResult(
@@ -84,8 +86,29 @@ object SpamScorer {
                 "(?:apna|apni|your|ur)?\\s*\\b(?:atm|pin|cnic|password|cvv|id card number|secret pin)\\b\\s*" +
                 ".*\\b(?:send|bhej(?:o|en|ain)?|share|batain|karain|verify|provide|likhain)\\b"
         ),
+        Regex("(?<!do not |never |don't |na |kisi se )\\b(?:your|ur|apna|apni|secret)\\s+pin\\b"),
+        Regex("cnic.*\\b(?:send|bhej(?:o|en|ain)?|share|batain)\\s*karain\\b"),
         Regex("\\b(?:atm\\s*pin|cvv|card\\s*expiry)\\b.*\\b(?:send|bhej|share|batain|verify)\\b"),
         Regex("\\b(?:verify|update)\\b\\s+(?:your|ur)?\\s*\\b(?:identity|cnic|atm|pin|cvv)\\b")
+    )
+
+    // Impersonation: Institutions/brands combined with personal mobile senders
+    private val INSTITUTION_PATTERNS = listOf(
+        Regex("\\b(?:bisp|benazir|ehsaas|8171|jazzcash|easypaisa|pta|fbr|nadra)\\b"),
+        Regex("\\b(?:hbl|meezan|alfalah|ubl|mcb|allied|standard\\s*chartered|faysal|bank)\\b"),
+        Regex("\\b(?:tcs|dhl|leopard|daraz|bykea|careem|uber|foodpanda)\\b"),
+        Regex("\\b(?:jazz|telenor|zong|ufone)\\b"),
+        Regex("(?:بے نظیر|8171|احساس|بینک)")
+    )
+
+    // Impersonation action triggers
+    private val ACTION_PATTERNS = listOf(
+        Regex(
+            "\\b(?:call|contact|rabta|claim|wasool|send|" +
+                "bhej(?:o|en|ain)?|share|batain|verify|tasdeeq|click|link|update)\\b"
+        ),
+        Regex("https?://"),
+        Regex("(?:رابطہ|کال|دعویٰ|حاصل)")
     )
 
     // Money or prize language (strictly requires prize context; plain bills/fares do not match)
@@ -231,11 +254,17 @@ object SpamScorer {
             reasons.add("Urgent action / suspension threat (+$WEIGHT_URGENCY)")
         }
 
-        // 5. Spam keywords
+        // 5. Impersonation Signal (+30)
+        if (isImpersonatingBrandFromMobile(address, normalizedBody)) {
+            score += WEIGHT_IMPERSONATION
+            reasons.add("Institution / brand impersonation from mobile number (+$WEIGHT_IMPERSONATION)")
+        }
+
+        // 6. Spam keywords
         val keywordScore = evaluateKeywords(normalizedBody, reasons)
         score += keywordScore
 
-        // 6. Reductions & Legitimate Patterns
+        // 7. Reductions & Legitimate Patterns
         val isOtp = anyPatternMatches(normalizedBody, OTP_PATTERNS)
         val isTxn = anyPatternMatches(normalizedBody, TRANSACTION_PATTERNS)
         val isStrongAttack = hasCredential || (hasPrize && hasLink)
@@ -244,7 +273,7 @@ object SpamScorer {
             score -= applyReductions(isOtp, isTxn, reasons)
         }
 
-        // 7. Sender Shape
+        // 8. Sender Shape
         if (isSuspiciousSender(address, isOtp, isTxn)) {
             score += WEIGHT_SENDER_SHAPE
             reasons.add("Alphanumeric or shortcode sender (+$WEIGHT_SENDER_SHAPE)")
@@ -307,6 +336,16 @@ object SpamScorer {
             val tld = match.groupValues.getOrNull(1)?.lowercase(Locale.ROOT)
             tld != null && ALLOWED_TLDS.contains(tld)
         }
+    }
+
+    private fun isImpersonatingBrandFromMobile(address: String, normalizedBody: String): Boolean {
+        val clean = address.trim().replace(Regex("[\\s-+()]"), "")
+        val isMobile = clean.length >= MIN_MOBILE_NUMBER_LENGTH && clean.all { it.isDigit() }
+        if (!isMobile) return false
+
+        val namesInstitution = INSTITUTION_PATTERNS.any { it.containsMatchIn(normalizedBody) }
+        val hasAction = ACTION_PATTERNS.any { it.containsMatchIn(normalizedBody) }
+        return namesInstitution && hasAction
     }
 
     private fun anyPatternMatches(text: String, patterns: List<Regex>): Boolean {

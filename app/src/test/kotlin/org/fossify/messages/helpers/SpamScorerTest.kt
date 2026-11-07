@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
+import java.util.Locale
 
 class SpamScorerTest {
 
@@ -23,9 +24,11 @@ class SpamScorerTest {
         val trueNegatives: Int,
         val falsePositives: Int,
         val suspiciousHam: Int,
+        val suspiciousSpam: Int,
         val missedSpam: List<Pair<Sample, SpamScorer.SpamResult>>,
         val wronglyFlaggedHam: List<Pair<Sample, SpamScorer.SpamResult>>,
         val suspiciousHamList: List<Pair<Sample, SpamScorer.SpamResult>>,
+        val suspiciousSpamList: List<Pair<Sample, SpamScorer.SpamResult>>,
     ) {
         val recall: Double
             get() = if (totalSpam > 0) (truePositives.toDouble() / totalSpam) * 100.0 else 100.0
@@ -68,16 +71,60 @@ class SpamScorerTest {
         return Triple(spamList, hamList, borderlineList)
     }
 
+    private fun loadBlindSamples(): Triple<List<Sample>, List<Sample>, List<Sample>> {
+        val inputStream = javaClass.getResourceAsStream("/spam_samples_blind.tsv")
+        assertNotNull("spam_samples_blind.tsv must exist in test resources", inputStream)
+
+        val reader = InputStreamReader(inputStream!!, StandardCharsets.UTF_8)
+        val lines = reader.readLines().filter { it.isNotBlank() }
+        assertTrue("Blind test file must contain at least a header and samples", lines.size >= 2)
+
+        val header = lines.first().split("\t").map { it.trim().lowercase(Locale.ROOT) }
+        val senderIdx = header.indexOf("sender")
+        val bodyIdx = header.indexOf("body")
+        val labelIdx = header.indexOf("label")
+
+        assertTrue("Header must contain 'sender'", senderIdx >= 0)
+        assertTrue("Header must contain 'body'", bodyIdx >= 0)
+        assertTrue("Header must contain 'label'", labelIdx >= 0)
+
+        val spamList = mutableListOf<Sample>()
+        val hamList = mutableListOf<Sample>()
+        val borderlineList = mutableListOf<Sample>()
+
+        for (line in lines.drop(1)) {
+            val parts = line.split("\t")
+            val maxIdx = maxOf(senderIdx, bodyIdx, labelIdx)
+            if (parts.size > maxIdx) {
+                val label = parts[labelIdx].trim().uppercase(Locale.ROOT)
+                val sample = Sample(
+                    label = label,
+                    address = parts[senderIdx].trim(),
+                    body = parts[bodyIdx].trim()
+                )
+                when (label) {
+                    "SPAM" -> spamList.add(sample)
+                    "HAM" -> hamList.add(sample)
+                    "BORDERLINE" -> borderlineList.add(sample)
+                }
+            }
+        }
+
+        return Triple(spamList, hamList, borderlineList)
+    }
+
     private fun evaluate(spamSet: List<Sample>, hamSet: List<Sample>): EvaluationResult {
         var tp = 0
         var fn = 0
         var tn = 0
         var fp = 0
         var suspiciousHam = 0
+        var suspiciousSpam = 0
 
         val missedSpam = mutableListOf<Pair<Sample, SpamScorer.SpamResult>>()
         val wronglyFlaggedHam = mutableListOf<Pair<Sample, SpamScorer.SpamResult>>()
         val suspiciousHamList = mutableListOf<Pair<Sample, SpamScorer.SpamResult>>()
+        val suspiciousSpamList = mutableListOf<Pair<Sample, SpamScorer.SpamResult>>()
 
         for (sample in spamSet) {
             val result = SpamScorer.score(sample.address, sample.body)
@@ -86,6 +133,10 @@ class SpamScorerTest {
             } else {
                 fn++
                 missedSpam.add(Pair(sample, result))
+                if (result.score in SpamScorer.THRESHOLD_SUSPICIOUS until SpamScorer.THRESHOLD_SPAM) {
+                    suspiciousSpam++
+                    suspiciousSpamList.add(Pair(sample, result))
+                }
             }
         }
 
@@ -111,9 +162,11 @@ class SpamScorerTest {
             trueNegatives = tn,
             falsePositives = fp,
             suspiciousHam = suspiciousHam,
+            suspiciousSpam = suspiciousSpam,
             missedSpam = missedSpam,
             wronglyFlaggedHam = wronglyFlaggedHam,
-            suspiciousHamList = suspiciousHamList
+            suspiciousHamList = suspiciousHamList,
+            suspiciousSpamList = suspiciousSpamList
         )
     }
 
@@ -127,10 +180,15 @@ class SpamScorerTest {
         println(
             "  [False Positive (Wrongly Flagged): ${res.falsePositives}, True Negative (Clean): ${res.trueNegatives}]"
         )
-        println("Spam Recall: %.1f%%".format(res.recall))
-        println("Precision: %.1f%%".format(res.precision))
-        println("Wrongly Flagged Legitimate (score >= 60): ${res.falsePositives}")
-        println("Suspicious Legitimate (score 30..59): ${res.suspiciousHam}")
+        println("Spam Recall: %.1f%% (%d/%d)".format(res.recall, res.truePositives, res.totalSpam))
+        val totalFlagged = res.truePositives + res.falsePositives
+        println("Precision: %.1f%% (%d/%d)".format(res.precision, res.truePositives, totalFlagged))
+        println("Wrongly Flagged Legitimate (score >= 60): ${res.falsePositives} / ${res.totalHam}")
+        println("Suspicious Legitimate (score 30..59): ${res.suspiciousHam} / ${res.totalHam}")
+        println(
+            "Suspicious Spam (score 30..59, caught as suspicious but < 60): " +
+                "${res.suspiciousSpam} / ${res.totalSpam}"
+        )
 
         if (res.wronglyFlaggedHam.isNotEmpty()) {
             println("\n--- WRONGLY FLAGGED LEGITIMATE MESSAGES (FALSE POSITIVES) ---")
@@ -167,13 +225,66 @@ class SpamScorerTest {
         println()
     }
 
+    private fun isMobileNumber(address: String): Boolean {
+        val clean = address.trim().replace(Regex("[\\s-+()]"), "")
+        return clean.length >= 10 && clean.all { it.isDigit() }
+    }
+
+    private fun printSenderBreakdown(spamList: List<Sample>, hamList: List<Sample>) {
+        println("--------------------------------------------------")
+        println("  SENDER TYPE BREAKDOWN")
+        println("--------------------------------------------------")
+
+        val mobileSpam = spamList.filter { isMobileNumber(it.address) }
+        val nonMobileSpam = spamList.filter { !isMobileNumber(it.address) }
+        val mobileHam = hamList.filter { isMobileNumber(it.address) }
+        val nonMobileHam = hamList.filter { !isMobileNumber(it.address) }
+
+        val mobileResult = evaluate(mobileSpam, mobileHam)
+        println("Ordinary Mobile Numbers (+92 3xx...):")
+        println(
+            "  Spam count: ${mobileSpam.size}, Caught: ${mobileResult.truePositives}, " +
+                "Missed: ${mobileResult.falseNegatives}"
+        )
+        println(
+            "  Spam Recall: %.1f%% (%d/%d)".format(
+                mobileResult.recall,
+                mobileResult.truePositives,
+                mobileSpam.size
+            )
+        )
+        println(
+            "  Ham count: ${mobileHam.size}, Clean: ${mobileResult.trueNegatives}, " +
+                "Suspicious: ${mobileResult.suspiciousHam}, Wrongly Flagged: ${mobileResult.falsePositives}"
+        )
+
+        val nonMobileResult = evaluate(nonMobileSpam, nonMobileHam)
+        println("Alphanumeric / Shortcode Senders:")
+        println(
+            "  Spam count: ${nonMobileSpam.size}, Caught: ${nonMobileResult.truePositives}, " +
+                "Missed: ${nonMobileResult.falseNegatives}"
+        )
+        println(
+            "  Spam Recall: %.1f%% (%d/%d)".format(
+                nonMobileResult.recall,
+                nonMobileResult.truePositives,
+                nonMobileSpam.size
+            )
+        )
+        println(
+            "  Ham count: ${nonMobileHam.size}, Clean: ${nonMobileResult.trueNegatives}, " +
+                "Suspicious: ${nonMobileResult.suspiciousHam}, Wrongly Flagged: ${nonMobileResult.falsePositives}"
+        )
+        println("--------------------------------------------------\n")
+    }
+
     @Test
     fun testSpamScorerAccuracyOnTuningAndHeldOutSets() {
         val (allSpam, allHam, borderline) = loadSamples()
 
         assertTrue("Dataset must contain at least 120 total samples", (allSpam.size + allHam.size) >= 120)
 
-        // 60/40 split
+        // 60/40 split assigned by sequential index
         val spamTuningCount = (allSpam.size * 0.6).toInt()
         val hamTuningCount = (allHam.size * 0.6).toInt()
 
@@ -185,11 +296,11 @@ class SpamScorerTest {
 
         // Evaluate Tuning Set
         val tuningResult = evaluate(spamTuning, hamTuning)
-        printReport("TUNING SET EVALUATION (60% split)", tuningResult)
+        printReport("TUNING SET EVALUATION (60% split by sequential index)", tuningResult)
 
         // Evaluate Held-out Set
         val heldOutResult = evaluate(spamHeldOut, hamHeldOut)
-        printReport("HELD-OUT SET EVALUATION (40% split)", heldOutResult)
+        printReport("HELD-OUT SET EVALUATION (40% split by sequential index)", heldOutResult)
 
         // Print Borderline scores for reference (not counted in accuracy metrics)
         println("==================================================")
@@ -206,7 +317,7 @@ class SpamScorerTest {
         }
         println()
 
-        // Assertions
+        // Assertions on tuning and held-out thresholds
         assertEquals(
             "Tuning set must have 0 wrongly-flagged legitimate messages",
             0,
@@ -229,6 +340,31 @@ class SpamScorerTest {
     }
 
     @Test
+    fun testSpamScorerOnBlindDataset() {
+        val (blindSpam, blindHam, blindBorderline) = loadBlindSamples()
+
+        val blindResult = evaluate(blindSpam, blindHam)
+        printReport("BLIND DATASET EVALUATION (UNSEEN TEST)", blindResult)
+        printSenderBreakdown(blindSpam, blindHam)
+
+        if (blindBorderline.isNotEmpty()) {
+            println("==================================================")
+            println("  BLIND BORDERLINE MESSAGES (REFERENCE ONLY)")
+            println("==================================================")
+            for (sample in blindBorderline) {
+                val res = SpamScorer.score(sample.address, sample.body)
+                val flag = when {
+                    res.isSpam -> "SPAM"
+                    res.score >= SpamScorer.THRESHOLD_SUSPICIOUS -> "SUSPICIOUS"
+                    else -> "CLEAN"
+                }
+                println("[$flag | Score: ${res.score}] ${sample.address}: ${sample.body}")
+            }
+            println()
+        }
+    }
+
+    @Test
     fun testEmptyMessage() {
         val result = SpamScorer.score("+923001234567", "")
         assertEquals(0, result.score)
@@ -244,4 +380,3 @@ class SpamScorerTest {
         assertTrue(result.reasons.isEmpty())
     }
 }
-
