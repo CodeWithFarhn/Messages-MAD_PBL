@@ -113,7 +113,11 @@ class SpamScorerTest {
         return Triple(spamList, hamList, borderlineList)
     }
 
-    private fun evaluate(spamSet: List<Sample>, hamSet: List<Sample>): EvaluationResult {
+    private fun evaluate(
+        spamSet: List<Sample>,
+        hamSet: List<Sample>,
+        threshold: Int = SpamScorer.THRESHOLD_SPAM
+    ): EvaluationResult {
         var tp = 0
         var fn = 0
         var tn = 0
@@ -128,12 +132,12 @@ class SpamScorerTest {
 
         for (sample in spamSet) {
             val result = SpamScorer.score(sample.address, sample.body)
-            if (result.isSpam) {
+            if (result.score >= threshold) {
                 tp++
             } else {
                 fn++
                 missedSpam.add(Pair(sample, result))
-                if (result.score in SpamScorer.THRESHOLD_SUSPICIOUS until SpamScorer.THRESHOLD_SPAM) {
+                if (result.score in SpamScorer.THRESHOLD_SUSPICIOUS until threshold) {
                     suspiciousSpam++
                     suspiciousSpamList.add(Pair(sample, result))
                 }
@@ -142,12 +146,12 @@ class SpamScorerTest {
 
         for (sample in hamSet) {
             val result = SpamScorer.score(sample.address, sample.body)
-            if (result.isSpam) {
+            if (result.score >= threshold) {
                 fp++
                 wronglyFlaggedHam.add(Pair(sample, result))
             } else {
                 tn++
-                if (result.score in SpamScorer.THRESHOLD_SUSPICIOUS until SpamScorer.THRESHOLD_SPAM) {
+                if (result.score in SpamScorer.THRESHOLD_SUSPICIOUS until threshold) {
                     suspiciousHam++
                     suspiciousHamList.add(Pair(sample, result))
                 }
@@ -278,6 +282,39 @@ class SpamScorerTest {
         println("--------------------------------------------------\n")
     }
 
+    private fun printThresholdSweep(
+        setName: String,
+        spamSet: List<Sample>,
+        hamSet: List<Sample>,
+        thresholds: List<Int>
+    ) {
+        println("=== THRESHOLD SWEEP: $setName ===")
+        println("| Threshold | Spam Caught (Recall) | Legitimate Wrongly Flagged (FP) |")
+        println("|:---------:|:--------------------:|:-------------------------------:|")
+        for (t in thresholds) {
+            val res = evaluate(spamSet, hamSet, t)
+            val recallStr = "%.1f%% (%d/%d)".format(res.recall, res.truePositives, res.totalSpam)
+            val fpStr = "%.1f%% (%d/%d)".format(
+                if (res.totalHam > 0) (res.falsePositives.toDouble() / res.totalHam) * 100.0 else 0.0,
+                res.falsePositives,
+                res.totalHam
+            )
+            println("|    $t     |   $recallStr   |          $fpStr           |")
+        }
+
+        // Top 5 highest scoring legitimate messages
+        val scoredHam = hamSet.map { it to SpamScorer.score(it.address, it.body) }
+            .sortedByDescending { it.second.score }
+            .take(5)
+
+        println("\nTop 5 Highest-Scoring Legitimate Messages in $setName:")
+        for ((sample, result) in scoredHam) {
+            println("  [Score: ${result.score}] ${sample.address}: ${sample.body}")
+            println("   Reasons: ${result.reasons.joinToString(", ")}")
+        }
+        println()
+    }
+
     @Test
     fun testSpamScorerAccuracyOnTuningAndHeldOutSets() {
         val (allSpam, allHam, borderline) = loadSamples()
@@ -317,6 +354,11 @@ class SpamScorerTest {
         }
         println()
 
+        // Threshold Sweeps
+        val thresholds = listOf(40, 45, 50, 55, 60, 65, 70)
+        printThresholdSweep("Tuning Set (60%)", spamTuning, hamTuning, thresholds)
+        printThresholdSweep("Held-Out Set (40%)", spamHeldOut, hamHeldOut, thresholds)
+
         // Assertions on tuning and held-out thresholds
         assertEquals(
             "Tuning set must have 0 wrongly-flagged legitimate messages",
@@ -344,8 +386,11 @@ class SpamScorerTest {
         val (blindSpam, blindHam, blindBorderline) = loadBlindSamples()
 
         val blindResult = evaluate(blindSpam, blindHam)
-        printReport("BLIND DATASET EVALUATION (UNSEEN TEST)", blindResult)
+        printReport("BLIND DATASET EVALUATION (ROUND 2 - TUNED ON BLIND SET)", blindResult)
         printSenderBreakdown(blindSpam, blindHam)
+
+        val thresholds = listOf(40, 45, 50, 55, 60, 65, 70)
+        printThresholdSweep("Blind Dataset", blindSpam, blindHam, thresholds)
 
         if (blindBorderline.isNotEmpty()) {
             println("==================================================")
