@@ -16,14 +16,14 @@ object SpamScorer {
     const val THRESHOLD_SPAM = 60
     const val THRESHOLD_SUSPICIOUS = 30
 
-    // Weights
+    // Tuned Weights
     const val WEIGHT_LINK = 25
-    const val WEIGHT_SHORT_URL = 10
-    const val WEIGHT_SPAM_KEYWORD = 15
-    const val MAX_SPAM_KEYWORD_SCORE = 45
-    const val WEIGHT_MONEY_PRIZE = 15
-    const val WEIGHT_URGENCY = 10
-    const val WEIGHT_CREDENTIAL_REQUEST = 30
+    const val WEIGHT_SHORT_URL = 15
+    const val WEIGHT_SPAM_KEYWORD = 20
+    const val MAX_SPAM_KEYWORD_SCORE = 50
+    const val WEIGHT_MONEY_PRIZE = 20
+    const val WEIGHT_URGENCY = 20
+    const val WEIGHT_CREDENTIAL_REQUEST = 40
     const val WEIGHT_SENDER_SHAPE = 10
     const val WEIGHT_CAPITALS_EXCLAMATION = 10
 
@@ -72,66 +72,95 @@ object SpamScorer {
         "v.gd", "tiny.cc", "bit.do"
     )
 
-    // Credential & sensitive info requests
+    // Credential & sensitive info requests (both English and Roman Urdu noun-verb orders with word boundaries)
     private val CREDENTIAL_PATTERNS = listOf(
-        Regex("\\b(?:pin|cnic|password|passcode|cvv|atm\\s*pin|id\\s*card\\s*(?:no|number)|card\\s*expiry)\\b"),
         Regex(
-            "(?:send|share|forward|verify|provide|enter|submit)\\s+(?:your|ur)?\\s*" +
-                "(?:pin|cnic|password|otp|code|account\\s*details)"
+            "(?<!do not |never |don't |na |kisi se )\\b" +
+                "(?:send|share|forward|provide|enter|submit|batain|bhej(?:o|en|ain)?|likhain)\\b\\s+" +
+                "(?:your|ur|apna|apni)?\\s*\\b(?:atm|pin|cnic|password|cvv|code|passcode)\\b"
         ),
-        Regex("(?:apna|apni)\\s+(?:pin|cnic|password|otp|code)\\s+(?:bhej|send|share|batain|likhain)"),
-        Regex("cnic\\s*(?:number|no)?\\s*(?:send|bhejo|bhejen|karain)")
+        Regex(
+            "(?<!do not |never |don't |na |kisi se )" +
+                "(?:apna|apni|your|ur)?\\s*\\b(?:atm|pin|cnic|password|cvv|id card number|secret pin)\\b\\s*" +
+                ".*\\b(?:send|bhej(?:o|en|ain)?|share|batain|karain|verify|provide|likhain)\\b"
+        ),
+        Regex("\\b(?:atm\\s*pin|cvv|card\\s*expiry)\\b.*\\b(?:send|bhej|share|batain|verify)\\b"),
+        Regex("\\b(?:verify|update)\\b\\s+(?:your|ur)?\\s*\\b(?:identity|cnic|atm|pin|cvv)\\b")
     )
 
-    // Money or prize language
+    // Money or prize language (strictly requires prize context; plain bills/fares do not match)
     private val PRIZE_PATTERNS = listOf(
-        Regex("\\b(?:winner|congratulations|prize|jackpot|lucky\\s*draw|qurandazi|lottery)\\b"),
         Regex(
-            "(?:you\\s*(?:have)?\\s*won|aap\\s*jeet\\s*chuke|inam\\s*nikla|" +
-                "lottery\\s*nikli|claim\\s*(?:your)?\\s*prize)"
+            "\\b(?:winner|congratulations|congrats|mubarak(?:\\s*ho)?|" +
+                "prize|jackpot|lucky\\s*draw|qurandazi|lottery|gold\\s*bar|honda\\s*(?:125|city)?|\\bcar\\b)\\b"
         ),
-        Regex("(?:rs\\.?|pkr)\\s*[0-9,]+\\s*(?:inam|prize|cash|jeet)"),
-        Regex("(?:mubarak\\s*ho|mubarak).*inam")
+        Regex(
+            "(?:you\\s*(?:have)?\\s*won|aap\\s*jeet\\s*chuke|\\binam\\b|" +
+                "\\bwazeefa\\b|cash\\s*reward|reward|kist\\s*(?:wasool|jari|mil|aa\\s*gayi))"
+        ),
+        Regex("(?:rs\\.?|pkr|\\$)\\s*[0-9,]+\\s*(?:inam|prize|cash|jeet|wazeefa|kist|reward|bonus)"),
+        Regex("(?:received|withdraw).*(?:btc|bitcoin|crypto|wallet|\\$[0-9,]+)"),
+        Regex("(?:مبارک|انعام|لاٹری|قرعہ اندازی|وظیفہ|دعویٰ)")
     )
 
     // Urgency language
     private val URGENCY_PATTERNS = listOf(
-        Regex("\\b(?:urgent|immediately|act\\s*now|action\\s*required|last\\s*chance|final\\s*notice|deactivation)\\b"),
-        Regex("(?:within\\s*24\\s*hours|account\\s*(?:will\\s*be|is)\\s*suspended|sim\\s*(?:band|block))"),
-        Regex("(?:block\\s*hone\\s*se\\s*bach(?:ayein|ain)|fauran\\s*(?:rabta|call|update))"),
-        Regex("(?:service\\s*(?:termination|interruption)|immediate\\s*verification)")
+        Regex(
+            "\\b(?:urgent|immediately|act\\s*now|action\\s*required|" +
+                "last\\s*chance|final\\s*notice|deactivation|warning|notice)\\b"
+        ),
+        Regex(
+            "(?:within\\s*\\d+\\s*hours|24\\s*hours|" +
+                "account\\s*(?:will\\s*be|is)\\s*suspended|sim\\s*block)"
+        ),
+        Regex(
+            "(?:block\\s*hone\\s*se\\s*bach(?:ayein|ain|ne)|" +
+                "fauran|abhi|arrest|legal\\s*action|avoid\\s*(?:permanent)?\\s*closure)"
+        ),
+        Regex("(?:service\\s*(?:termination|interruption)|immediate\\s*verification)"),
+        Regex("(?:فوراً|بند ہو|بلاک)")
     )
 
     // English spam keyword phrases
     private val ENGLISH_SPAM_KEYWORDS = listOf(
         Regex("claim\\s*(?:your)?\\s*free"),
-        Regex("exclusive\\s*deal"),
-        Regex("guaranteed\\s*(?:return|profit|income)"),
+        Regex("exclusive\\s*(?:deal|offer)"),
+        Regex("guaranteed\\s*(?:return|profit|income|approval)"),
         Regex("click\\s*(?:the\\s*link\\s*)?to\\s*claim"),
-        Regex("pre-?approved\\s*(?:loan|credit|cash)"),
+        Regex("(?:instant|urgent|easy|fast|pre-?approved)\\s*(?:cash|loan)"),
         Regex("earn\\s*(?:\\$|rs\\.?|pkr)?\\s*[0-9,]+\\s*(?:daily|weekly|from\\s*home)"),
-        Regex("work\\s*from\\s*home\\s*(?:earn|job)"),
-        Regex("no\\s*investment\\s*needed"),
-        Regex("instant\\s*(?:cash|loan)\\s*approval"),
-        Regex("double\\s*your\\s*money"),
-        Regex("100%\\s*(?:free|guaranteed)")
+        Regex("work\\s*from\\s*home"),
+        Regex("no\\s*(?:investment|experience|guarantor)\\s*needed"),
+        Regex("double\\s*your\\s*(?:money|income)"),
+        Regex("(?:unpaid|due)\\s*invoice.*settle"),
+        Regex(
+            "(?:security\\s*breach|unusual\\s*sign-in|account\\s*locked|" +
+                "unauthorized|verification\\s*pending).*verify"
+        ),
+        Regex("pay\\s*(?:release|customs|delivery|transfer)?\\s*fee"),
+        Regex("limited\\s*(?:vouchers|time|slots)"),
+        Regex("(?:zero|0%|no)\\s*(?:percent|%|interest|mark-?up)")
     )
 
     // Roman Urdu & Local scam keyword phrases
-    // Note: Brand/program names (BISP, Ehsaas, 8171) only match when combined with action/claim cues
+    // Note: Brand/program names (BISP, Ehsaas, 8171, PTA) only match when combined with action/claim cues
     private val ROMAN_URDU_SPAM_KEYWORDS = listOf(
         Regex(
             "(?:bisp|benazir|ehsaas|8171).*" +
-                "(?:balance|waseela|rashan|claim|fauran|rabta|paise|kist|mil\\s*gaye|jaanch)"
+                "(?:balance|wazeefa|rashan|claim|fauran|rabta|paise|kist|" +
+                "mil\\s*gaye|jaanch|kafalat|taleem|verify|relief)"
         ),
-        Regex("(?:lottery|inam)\\s*(?:nikli|nikla|mubarak|lagi)"),
-        Regex("qurandazi\\s*mein\\s*(?:naam|inam)"),
-        Regex("(?:sim|account)\\s*(?:band|block)\\s*(?:kar\\s*diya|hone\\s*se\\s*bach)"),
-        Regex("(?:jazzcash|easypaisa).*(?:block|suspended|lottery|inam|waseela)"),
-        Regex("ghar\\s*baith(?:ay|e)\\s*(?:paise\\s*)?kamain"),
+        Regex("(?:lottery|inam|prize).*(?:nikli|nikla|lagi|mubarak|jeet|claim|wasool|lene)"),
+        Regex("jeeto\\s*pakistan"),
+        Regex("qurandazi.*(?:naam|inam|result|cash)"),
+        Regex("(?:sim|account|number).*(?:band|block|suspend|deactivat)"),
+        Regex("(?:jazzcash|easypaisa).*(?:block|suspend|lottery|inam|waseela|error|unblock)"),
+        Regex("(?:pta|fbr).*(?:warning|alert|rule|verification|tax|illegal|terrorist)"),
+        Regex("ghar\\s*baith(?:ay|e).*kamain"),
         Regex("online\\s*(?:karobar|investment|kamai)"),
         Regex("bina\\s*(?:kisi\\s*)?investment"),
-        Regex("fauran\\s*is\\s*number\\s*par\\s*rabta")
+        Regex("(?:call|rabta|contact)\\s*(?:karain|karein|farmain|kijiye).*03[0-9]{9}"),
+        Regex("(?:بے نظیر|8171|احساس|وظیفہ|انعام|لاٹری|قرعہ اندازی|دعویٰ)")
     )
 
     // Legitimate OTP / 2FA patterns
