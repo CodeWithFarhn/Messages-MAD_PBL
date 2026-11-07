@@ -159,6 +159,44 @@
             </RelativeLayout>
 
             <RelativeLayout
+                android:id="@+id/settings_spam_filter_holder"
+                style="@style/SettingsHolderSwitchStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyMaterialSwitch
+                    android:id="@+id/settings_spam_filter"
+                    style="@style/SettingsSwitchStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/spam_filter" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_spam_sensitivity_holder"
+                style="@style/SettingsHolderTextViewStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_spam_sensitivity_label"
+                    style="@style/SettingsTextLabelStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/spam_sensitivity" />
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_spam_sensitivity"
+                    style="@style/SettingsTextValueStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_below="@+id/settings_spam_sensitivity_label"
+                    tools:text="@string/spam_sensitivity_medium" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
                 android:id="@+id/settings_font_size_holder"
                 style="@style/SettingsHolderTextViewStyle"
                 android:layout_width="match_parent"

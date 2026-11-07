@@ -179,6 +179,7 @@ class MainActivity : SimpleActivity() {
             when (menuItem.itemId) {
                 R.id.show_recycle_bin -> launchRecycleBin()
                 R.id.show_archived -> launchArchivedConversations()
+                R.id.show_spam -> launchSpam()
                 R.id.settings -> launchSettings()
                 R.id.about -> launchAbout()
                 else -> return@setOnMenuItemClickListener false
@@ -619,6 +620,11 @@ class MainActivity : SimpleActivity() {
     private fun launchArchivedConversations() {
         hideKeyboard()
         startActivity(Intent(applicationContext, ArchivedConversationsActivity::class.java))
+    }
+
+    private fun launchSpam() {
+        hideKeyboard()
+        startActivity(Intent(applicationContext, SpamActivity::class.java))
     }
 
     private fun launchSettings() {

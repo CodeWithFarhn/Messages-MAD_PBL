@@ -46,6 +46,9 @@ import org.fossify.messages.helpers.LOCK_SCREEN_NOTHING
 import org.fossify.messages.helpers.LOCK_SCREEN_SENDER
 import org.fossify.messages.helpers.LOCK_SCREEN_SENDER_MESSAGE
 import org.fossify.messages.helpers.MessagesImporter
+import org.fossify.messages.helpers.SPAM_SENSITIVITY_HIGH
+import org.fossify.messages.helpers.SPAM_SENSITIVITY_LOW
+import org.fossify.messages.helpers.SPAM_SENSITIVITY_MEDIUM
 import org.fossify.messages.helpers.refreshConversations
 import java.util.Locale
 import kotlin.system.exitProcess
@@ -103,6 +106,8 @@ class SettingsActivity : SimpleActivity() {
         setupLanguage()
         setupManageBlockedNumbers()
         setupManageBlockedKeywords()
+        setupSpamFilter()
+        setupSpamSensitivity()
         setupChangeDateTimeFormat()
         setupFontSize()
         setupShowCharacterCounter()
@@ -218,6 +223,40 @@ class SettingsActivity : SimpleActivity() {
             }
         }
     }
+
+    private fun setupSpamFilter() = binding.apply {
+        settingsSpamFilter.isChecked = config.isSpamFilterEnabled
+        settingsSpamSensitivityHolder.beVisibleIf(config.isSpamFilterEnabled)
+        settingsSpamFilterHolder.setOnClickListener {
+            settingsSpamFilter.toggle()
+            config.isSpamFilterEnabled = settingsSpamFilter.isChecked
+            settingsSpamSensitivityHolder.beVisibleIf(settingsSpamFilter.isChecked)
+        }
+    }
+
+    private fun setupSpamSensitivity() = binding.apply {
+        settingsSpamSensitivity.text = getSpamSensitivityText()
+        settingsSpamSensitivityHolder.setOnClickListener {
+            val items = arrayListOf(
+                RadioItem(SPAM_SENSITIVITY_LOW, getString(R.string.spam_sensitivity_low)),
+                RadioItem(SPAM_SENSITIVITY_MEDIUM, getString(R.string.spam_sensitivity_medium)),
+                RadioItem(SPAM_SENSITIVITY_HIGH, getString(R.string.spam_sensitivity_high)),
+            )
+
+            RadioGroupDialog(this@SettingsActivity, items, config.spamSensitivity) {
+                config.spamSensitivity = it as Int
+                settingsSpamSensitivity.text = getSpamSensitivityText()
+            }
+        }
+    }
+
+    private fun getSpamSensitivityText() = getString(
+        when (config.spamSensitivity) {
+            SPAM_SENSITIVITY_LOW -> R.string.spam_sensitivity_low
+            SPAM_SENSITIVITY_HIGH -> R.string.spam_sensitivity_high
+            else -> R.string.spam_sensitivity_medium
+        }
+    )
 
     private fun setupChangeDateTimeFormat() = binding.apply {
         settingsChangeDateTimeFormatHolder.setOnClickListener {

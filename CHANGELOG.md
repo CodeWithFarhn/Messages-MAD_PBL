@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added database schema migration and models for spam filtering and starred messages
 - Added pure Kotlin spam scoring engine with heuristic evaluation and pattern reductions
+- Added spam quarantine routing in SMS receiver, SpamActivity UI, and spam filter settings
 
 ## [1.10.2] - 2026-10-21
 ### Changed

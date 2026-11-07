@@ -151,4 +151,13 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getBoolean(KEEP_CONVERSATIONS_ARCHIVED, false)
         set(keepConversationsArchived) = prefs.edit()
             .putBoolean(KEEP_CONVERSATIONS_ARCHIVED, keepConversationsArchived).apply()
+
+    var isSpamFilterEnabled: Boolean
+        get() = prefs.getBoolean(SPAM_FILTER_ENABLED, true)
+        set(isSpamFilterEnabled) = prefs.edit()
+            .putBoolean(SPAM_FILTER_ENABLED, isSpamFilterEnabled).apply()
+
+    var spamSensitivity: Int
+        get() = prefs.getInt(SPAM_SENSITIVITY, SPAM_SENSITIVITY_MEDIUM)
+        set(spamSensitivity) = prefs.edit().putInt(SPAM_SENSITIVITY, spamSensitivity).apply()
 }

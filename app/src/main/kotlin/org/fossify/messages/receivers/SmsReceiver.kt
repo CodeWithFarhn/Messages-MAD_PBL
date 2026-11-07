@@ -10,22 +10,18 @@ import org.fossify.commons.extensions.isNumberBlocked
 import org.fossify.commons.helpers.ContactLookupResult
 import org.fossify.commons.helpers.SimpleContactsHelper
 import org.fossify.commons.helpers.ensureBackgroundThread
-import org.fossify.commons.models.PhoneNumber
-import org.fossify.commons.models.SimpleContact
-import org.fossify.messages.extensions.getConversations
-import org.fossify.messages.extensions.getNameFromAddress
-import org.fossify.messages.extensions.getNotificationBitmap
+import org.fossify.messages.extensions.config
 import org.fossify.messages.extensions.getThreadId
-import org.fossify.messages.extensions.insertNewSMS
-import org.fossify.messages.extensions.insertOrUpdateConversation
-import org.fossify.messages.extensions.messagesDB
-import org.fossify.messages.extensions.shouldUnarchive
-import org.fossify.messages.extensions.showReceivedMessageNotification
-import org.fossify.messages.extensions.updateConversationArchivedStatus
+import org.fossify.messages.extensions.spamMessagesDB
+import org.fossify.messages.extensions.spamSendersDB
 import org.fossify.messages.helpers.ReceiverUtils.isMessageFilteredOut
-import org.fossify.messages.helpers.refreshConversations
-import org.fossify.messages.helpers.refreshMessages
-import org.fossify.messages.models.Message
+import org.fossify.messages.helpers.SmsMessageHelper
+import org.fossify.messages.helpers.SpamHelper
+import org.fossify.messages.helpers.SpamScorer
+import org.fossify.messages.models.SpamMessage
+import org.fossify.messages.models.SpamSender
+
+private const val SENDER_SPAM_SCORE = 100
 
 class SmsReceiver : BroadcastReceiver() {
 
@@ -38,13 +34,13 @@ class SmsReceiver : BroadcastReceiver() {
                 val parts = Telephony.Sms.Intents.getMessagesFromIntent(intent)
                 if (parts.isEmpty()) return@ensureBackgroundThread
 
-                // this is how it has always worked, but need to revisit this.
                 val address = parts.last().originatingAddress.orEmpty()
                 if (address.isBlank()) return@ensureBackgroundThread
                 val subject = parts.last().pseudoSubject.orEmpty()
                 val status = parts.last().status
                 val body = buildString { parts.forEach { append(it.messageBody.orEmpty()) } }
 
+                // 1. Existing blocked number and keyword checks first, unchanged
                 if (isMessageFilteredOut(appContext, body)) return@ensureBackgroundThread
                 if (appContext.isNumberBlocked(address)) return@ensureBackgroundThread
                 if (appContext.baseConfig.blockUnknownNumbers) {
@@ -55,10 +51,15 @@ class SmsReceiver : BroadcastReceiver() {
                 }
 
                 val date = System.currentTimeMillis()
-                val threadId = appContext.getThreadId(address)
                 val subscriptionId = intent.getIntExtra("subscription", -1)
 
-                handleMessageSync(
+                // 2. Spam checks before getThreadId and insertNewSMS
+                if (shouldQuarantineSpam(appContext, address, body, date, subscriptionId)) {
+                    return@ensureBackgroundThread
+                }
+
+                val threadId = appContext.getThreadId(address)
+                SmsMessageHelper.handleMessageSync(
                     context = appContext,
                     address = address,
                     subject = subject,
@@ -66,7 +67,8 @@ class SmsReceiver : BroadcastReceiver() {
                     date = date,
                     threadId = threadId,
                     subscriptionId = subscriptionId,
-                    status = status
+                    status = status,
+                    showNotification = true
                 )
             } finally {
                 pending.finish()
@@ -74,83 +76,66 @@ class SmsReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun handleMessageSync(
+    private fun shouldQuarantineSpam(
         context: Context,
         address: String,
-        subject: String,
         body: String,
         date: Long,
-        read: Int = 0,
-        threadId: Long,
-        type: Int = Telephony.Sms.MESSAGE_TYPE_INBOX,
-        subscriptionId: Int,
-        status: Int
-    ) {
-        val photoUri = SimpleContactsHelper(context).getPhotoUriFromPhoneNumber(address)
-        val bitmap = context.getNotificationBitmap(photoUri)
+        subscriptionId: Int
+    ): Boolean {
+        val config = context.config
+        if (!config.isSpamFilterEnabled) {
+            return false
+        }
 
-        val newMessageId = context.insertNewSMS(
+        val isSavedContact = context.getMyContactsCursor(favoritesOnly = false, withPhoneNumbersOnly = true).use {
+            SimpleContactsHelper(context).existsSync(address, it) != ContactLookupResult.NotFound
+        }
+        if (isSavedContact) {
+            return false
+        }
+
+        val normalizedAddress = SpamHelper.normalizeSenderAddress(address)
+        val senderStatus = context.spamSendersDB.getSenderStatus(normalizedAddress)
+        if (senderStatus == SpamSender.STATUS_ALLOWED) {
+            return false
+        }
+
+        val isMarkedSpam = senderStatus == SpamSender.STATUS_SPAM
+        val scorerResult = if (!isMarkedSpam) SpamScorer.score(address, body) else null
+        val shouldQuarantine = isMarkedSpam ||
+            (scorerResult != null && scorerResult.score >= config.spamSensitivity)
+
+        if (shouldQuarantine) {
+            val score = if (isMarkedSpam) SENDER_SPAM_SCORE else scorerResult!!.score
+            val reasons = if (isMarkedSpam) {
+                "Sender marked as spam"
+            } else {
+                scorerResult!!.reasons.joinToString("; ")
+            }
+            quarantine(context, address, body, date, subscriptionId, score, reasons)
+        }
+
+        return shouldQuarantine
+    }
+
+    private fun quarantine(
+        context: Context,
+        address: String,
+        body: String,
+        date: Long,
+        subscriptionId: Int,
+        score: Int,
+        reasons: String
+    ) {
+        val spamMessage = SpamMessage(
             address = address,
-            subject = subject,
             body = body,
             date = date,
-            read = read,
-            threadId = threadId,
-            type = type,
-            subscriptionId = subscriptionId
+            subscriptionId = subscriptionId,
+            score = score,
+            reasons = reasons
         )
-
-        context.getConversations(threadId).firstOrNull()?.let { conv ->
-            runCatching { context.insertOrUpdateConversation(conv) }
-        }
-
-        val senderName = context.getMyContactsCursor(favoritesOnly = false, withPhoneNumbersOnly = true).use {
-            context.getNameFromAddress(address, it)
-        }
-
-        val participant = SimpleContact(
-            rawId = 0,
-            contactId = 0,
-            name = senderName,
-            photoUri = photoUri,
-            phoneNumbers = arrayListOf(PhoneNumber(value = address, type = 0, label = "", normalizedNumber = address)),
-            birthdays = ArrayList(),
-            anniversaries = ArrayList()
-        )
-
-        val message = Message(
-            id = newMessageId,
-            body = body,
-            type = type,
-            status = status,
-            participants = arrayListOf(participant),
-            date = (date / 1000).toInt(),
-            read = false,
-            threadId = threadId,
-            isMMS = false,
-            attachment = null,
-            senderPhoneNumber = address,
-            senderName = senderName,
-            senderPhotoUri = photoUri,
-            subscriptionId = subscriptionId
-        )
-
-        context.messagesDB.insertOrUpdate(message)
-
-        if (context.shouldUnarchive()) {
-            context.updateConversationArchivedStatus(threadId, false)
-        }
-
-        refreshMessages()
-        refreshConversations()
-        context.showReceivedMessageNotification(
-            messageId = newMessageId,
-            isMms = false,
-            address = address,
-            senderName = senderName,
-            body = body,
-            threadId = threadId,
-            bitmap = bitmap
-        )
+        context.spamMessagesDB.insertOrUpdate(spamMessage)
     }
 }

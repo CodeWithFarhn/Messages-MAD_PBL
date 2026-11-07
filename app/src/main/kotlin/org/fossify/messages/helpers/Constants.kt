@@ -48,6 +48,12 @@ const val IS_ARCHIVE_AVAILABLE = "is_archive_available"
 const val CUSTOM_NOTIFICATIONS = "custom_notifications"
 const val IS_LAUNCHED_FROM_SHORTCUT = "is_launched_from_shortcut"
 const val KEEP_CONVERSATIONS_ARCHIVED = "keep_conversations_archived"
+const val SPAM_FILTER_ENABLED = "spam_filter_enabled"
+const val SPAM_SENSITIVITY = "spam_sensitivity"
+
+const val SPAM_SENSITIVITY_LOW = 70
+const val SPAM_SENSITIVITY_MEDIUM = 60
+const val SPAM_SENSITIVITY_HIGH = 50
 
 private const val PATH = "org.fossify.org.fossify.messages.action."
 const val MARK_AS_READ = PATH + "mark_as_read"

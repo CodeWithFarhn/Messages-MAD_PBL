@@ -183,6 +183,23 @@
     <string name="faq_4_text">You need to enable \"Send group messages as MMS\" in the app settings. This will ensure that group messages are sent as proper MMS, allowing all participants to see each other\'s replies.</string>
     <string name="play">Play</string>
     <string name="pause">Pause</string>
+
+    <!-- Spam Protection -->
+    <string name="spam">Spam</string>
+    <string name="spam_filter">Spam filter</string>
+    <string name="spam_filter_summary">Automatically detect and quarantine spam messages</string>
+    <string name="spam_sensitivity">Spam sensitivity</string>
+    <string name="spam_sensitivity_low">Low</string>
+    <string name="spam_sensitivity_medium">Medium</string>
+    <string name="spam_sensitivity_high">High</string>
+    <string name="not_spam">Not spam</string>
+    <string name="delete_all">Delete all</string>
+    <string name="delete_all_spam_confirmation">Are you sure you want to delete all spam messages?</string>
+    <string name="no_spam_messages">No spam messages</string>
+    <string name="mark_as_spam">Mark sender as spam</string>
+    <string name="sender_marked_as_spam">Sender marked as spam</string>
+    <string name="message_restored">Message restored</string>
+    <string name="spam_score">Score: %1$d</string>
     <!--
         Haven't found some strings? There's more at
         https://github.com/FossifyOrg/Commons/tree/master/commons/src/main/res
