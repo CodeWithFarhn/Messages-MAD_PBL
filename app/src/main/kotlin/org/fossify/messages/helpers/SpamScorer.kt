@@ -84,16 +84,16 @@ object SpamScorer {
         "(?<!never |do not |don't |na |kisi se |will never )\\b" +
             "(?:share|send|enter|provide|confirm|submit|forward|" +
             "bhej(?:o|en|ain)?|batain|dal(?:ain|o|e)?|likh(?:ain|o)?)\\b" +
-            "(?:\\s+(?:your|ur|apna|apni|secret|transaction|card|\\d+\\s*digit|the|this|my|his)){0,3}\\s+" +
-            "\\b(?:pin|mpin|otp|cvv|password|passcode|secret\\s*(?:code|pin)|cnic|id\\s*card\\s*number)\\b"
+            "(?:\\s+\\S+){0,3}\\s+" +
+            "\\b(?:pin|mpin|otp|cvv|password|passcode|secret\\s*(?:code|pin)|cnic|id\\s*card(?:\\s*number)?)\\b"
     )
 
     private val CREDENTIAL_NOUN_FIRST = Regex(
-        "(?<!never |do not |don't |na |kisi se |will never )\\b" +
-            "(?:pin|mpin|otp|cvv|password|passcode|secret\\s*(?:code|pin)|cnic)\\b" +
-            "(?:\\s+(?:number|no|code|copy|details|and|aur|\\d+\\s*digit)){0,3}" +
-            "(?:\\s+(?:send|bhej(?:o|en|ain)?|share|batain|karain|krain|" +
-            "provide|enter|submit|dal(?:ain|o|e)?|likh(?:ain|o)?))\\b"
+        "\\b(?:pin|mpin|otp|cvv|password|passcode|secret\\s*(?:code|pin)|cnic|id\\s*card(?:\\s*number)?)\\b" +
+            "(?:\\s+\\S+){0,3}\\s+" +
+            "(?<!never |do not |don't |na |kisi se |will never )\\b" +
+            "(?:send|bhej(?:o|en|ain)?|share|batain|karain|kren|krain|" +
+            "provide|enter|submit|dal(?:ain|o|e)?|likh(?:ain|o)?)\\b"
     )
 
     private val CREDENTIAL_PATTERNS = listOf(
