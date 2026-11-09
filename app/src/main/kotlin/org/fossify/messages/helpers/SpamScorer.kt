@@ -25,6 +25,7 @@ object SpamScorer {
     const val WEIGHT_SPAM_KEYWORD = 20
     const val MAX_SPAM_KEYWORD_SCORE = 50
     const val WEIGHT_MONEY_PRIZE = 20
+    const val WEIGHT_WINDFALL_CTA = 30
     const val WEIGHT_URGENCY = 20
     const val WEIGHT_CREDENTIAL_REQUEST = 40
     const val WEIGHT_IMPERSONATION = 30
@@ -149,6 +150,21 @@ object SpamScorer {
         Regex("(?:مبارک|انعام|لاٹری|قرعہ اندازی|وظیفہ|دعویٰ)")
     )
 
+    // Windfall + Call to Action: Lottery/prize windfall coupled with actionable response
+    private val WINDFALL_PATTERN = Regex(
+        "\\b(?:prize|lottery|lucky\\s*draw|jackpot|qurandazi|gold\\s*(?:bar)?|" +
+            "\\bcar\\b|honda\\s*(?:125|city)|cash\\s*(?:reward|prize)|" +
+            "you\\s*(?:have)?\\s*won|aap\\s*jeet\\s*chuke|\\binam\\b|wazeefa)\\b|" +
+            "(?:rs\\.?|pkr|\\$)\\s*[0-9,]+\\s*(?:inam|prize|cash|jeet|reward|bonus)\\b|" +
+            "(?:مبارک.*انعام|لاٹری|قرعہ اندازی)"
+    )
+
+    private val CTA_PATTERN = Regex(
+        "\\b(?:call|contact|rabta|rabtah|claim|wasool|send|bhej(?:o|en|ain)?|" +
+            "click|whatsapp|dial|visit)\\b|" +
+            "\\b03[0-9]{9}\\b|\\+?92\\s*3[0-9]{9}\\b|https?://"
+    )
+
     // Urgency & Threat language
     private val URGENCY_PATTERNS = listOf(
         Regex(
@@ -187,7 +203,8 @@ object SpamScorer {
         ),
         Regex("pay\\s*(?:release|customs|delivery|transfer)?\\s*fee"),
         Regex("limited\\s*(?:vouchers|time|slots|stock)"),
-        Regex("(?:zero|0%|no)\\s*(?:percent|%|interest|mark-?up)")
+        Regex("(?:zero|0%|no)\\s*(?:percent|%|interest|mark-?up)"),
+        Regex("(?:jackpot|mega\\s*lucky\\s*draw|won.*(?:car|cash|prize))")
     )
 
     // Roman Urdu & Local scam keyword phrases
@@ -197,7 +214,10 @@ object SpamScorer {
                 "(?:balance|wazeefa|rashan|claim|fauran|foran|rabta|rabtah|paise|kist|" +
                 "mil\\s*gaye|jaanch|kafalat|taleem|verify|relief)"
         ),
-        Regex("(?:lottery|inam|prize).*(?:nikli|nikla|lagi|mubarak|jeet|claim|wasool|lene)"),
+        Regex(
+            "(?:lottery|inam|prize|lucky\\s*draw|jackpot).*" +
+                "(?:nikli|nikla|lagi|mubarak|jeet|claim|wasool|lene|alert|won|winner)"
+        ),
         Regex("jeeto\\s*pakistan"),
         Regex("qurandazi.*(?:naam|inam|result|cash)"),
         Regex("(?:sim|account|number).*(?:band|block|suspend|deactivat)"),
@@ -380,6 +400,13 @@ object SpamScorer {
             reasons.add("Prize / lottery / cash language (+$WEIGHT_MONEY_PRIZE)")
         }
 
+        val hasWindfallCta = WINDFALL_PATTERN.containsMatchIn(normalizedBody) &&
+            CTA_PATTERN.containsMatchIn(normalizedBody)
+        if (hasWindfallCta) {
+            score += WEIGHT_WINDFALL_CTA
+            reasons.add("Windfall prize with call-to-action (+$WEIGHT_WINDFALL_CTA)")
+        }
+
         val hasUrgency = URGENCY_PATTERNS.any { it.containsMatchIn(normalizedBody) }
         if (hasUrgency) {
             score += WEIGHT_URGENCY
@@ -429,7 +456,14 @@ object SpamScorer {
             return false
         }
 
-        val hasContactCTA = normalizedBody.contains("call") || normalizedBody.contains("rabta") || hasLink
+        val hasRiskyLink = SHORT_URL_REGEX.containsMatchIn(normalizedBody) ||
+            RISKY_TLD_REGEX.containsMatchIn(normalizedBody) ||
+            SUSPICIOUS_HYPHEN_DOMAIN_REGEX.containsMatchIn(normalizedBody)
+        val hasContactCTA = normalizedBody.contains("call") ||
+            normalizedBody.contains("rabta") ||
+            normalizedBody.contains("whatsapp") ||
+            Regex("\\b03[0-9]{9}\\b").containsMatchIn(normalizedBody) ||
+            hasRiskyLink
         return hasCredential || (hasLink && hasUrgency) || (hasPrize && hasContactCTA)
     }
 
