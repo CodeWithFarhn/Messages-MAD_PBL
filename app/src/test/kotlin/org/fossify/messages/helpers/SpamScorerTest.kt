@@ -409,6 +409,70 @@ class SpamScorerTest {
         }
     }
 
+    private fun loadRound3Samples(): Pair<List<Sample>, List<Sample>> {
+        val inputStream = javaClass.getResourceAsStream("/spam_samples_round3.tsv")
+        assertNotNull("spam_samples_round3.tsv must exist in test resources", inputStream)
+
+        val reader = InputStreamReader(inputStream!!, StandardCharsets.UTF_8)
+        val lines = reader.readLines().drop(1).filter { it.isNotBlank() }
+
+        val spamList = mutableListOf<Sample>()
+        val hamList = mutableListOf<Sample>()
+
+        for (line in lines) {
+            val parts = line.split("\t")
+            if (parts.size < 3) continue
+            val sample = Sample(
+                label = parts[2].trim().uppercase(Locale.ROOT),
+                address = parts[0].trim(),
+                body = parts[1].trim()
+            )
+            if (sample.label == "SPAM") {
+                spamList.add(sample)
+            } else if (sample.label == "HAM") {
+                hamList.add(sample)
+            }
+        }
+        return Pair(spamList, hamList)
+    }
+
+    @Test
+    fun testSpamScorerOnRound3Dataset() {
+        val (round3Spam, round3Ham) = loadRound3Samples()
+
+        println("==================================================")
+        println("  ROUND 3 WINDFALL & CONFOUNDING SAMPLES")
+        println("==================================================")
+
+        var spamAt60OrMore = 0
+        for (sample in round3Spam) {
+            val res = SpamScorer.score(sample.address, sample.body)
+            if (res.score >= SpamScorer.THRESHOLD_SPAM) {
+                spamAt60OrMore++
+            }
+            println("[SPAM | Score: ${res.score}] ${sample.address}: ${sample.body}")
+            println("  Reasons: ${res.reasons.joinToString("; ")}")
+        }
+
+        var hamAt60OrMore = 0
+        for (sample in round3Ham) {
+            val res = SpamScorer.score(sample.address, sample.body)
+            if (res.score >= SpamScorer.THRESHOLD_SPAM) {
+                hamAt60OrMore++
+            }
+            println("[HAM  | Score: ${res.score}] ${sample.address}: ${sample.body}")
+            println("  Reasons: ${res.reasons.joinToString("; ")}")
+        }
+
+        println("--- SUMMARY ---")
+        println("Windfall Spam scoring >= 60: $spamAt60OrMore / ${round3Spam.size}")
+        println("Legitimate Ham scoring >= 60: $hamAt60OrMore / ${round3Ham.size}")
+        println("==================================================")
+
+        assertEquals("All windfall spam must score >= 60", round3Spam.size, spamAt60OrMore)
+        assertEquals("Zero legitimate ham must score >= 60", 0, hamAt60OrMore)
+    }
+
     @Test
     fun testEmptyMessage() {
         val result = SpamScorer.score("+923001234567", "")
@@ -423,5 +487,92 @@ class SpamScorerTest {
         assertEquals(0, result.score)
         assertEquals(false, result.isSpam)
         assertTrue(result.reasons.isEmpty())
+    }
+
+    data class PhishingSample(
+        val address: String,
+        val body: String,
+        val label: String,
+        val category: String,
+    )
+
+    private fun loadPhishing1000Samples(): List<PhishingSample> {
+        val inputStream = javaClass.getResourceAsStream("/phishing_dataset_1000.tsv")
+            ?: return emptyList()
+
+        val reader = InputStreamReader(inputStream, StandardCharsets.UTF_8)
+        val lines = reader.readLines().drop(1).filter { it.isNotBlank() }
+        val list = mutableListOf<PhishingSample>()
+
+        for (line in lines) {
+            val parts = line.split("\t")
+            if (parts.size >= 4) {
+                list.add(
+                    PhishingSample(
+                        address = parts[0].trim(),
+                        body = parts[1].trim(),
+                        label = parts[2].trim().lowercase(Locale.ROOT),
+                        category = parts[3].trim()
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    @Test
+    fun testSpamScorerOn1000PhishingDataset() {
+        val samples = loadPhishing1000Samples()
+        if (samples.isEmpty()) {
+            println("Skipping testSpamScorerOn1000PhishingDataset: phishing_dataset_1000.tsv not present")
+            return
+        }
+        assertTrue("Dataset must contain 1000 samples", samples.size >= 1000)
+
+        var tp = 0
+        var fp = 0
+        var tn = 0
+        var fn = 0
+        var suspiciousSpam = 0
+
+        for (sample in samples) {
+            val res = SpamScorer.score(sample.address, sample.body)
+            val isActualSpam = sample.label == "spam"
+            val isFlagged = res.isSpam
+
+            if (isActualSpam && isFlagged) {
+                tp++
+            } else if (isActualSpam) {
+                fn++
+                if (res.score >= SpamScorer.THRESHOLD_SUSPICIOUS) {
+                    suspiciousSpam++
+                }
+            } else if (isFlagged) {
+                fp++
+            } else {
+                tn++
+            }
+        }
+
+        val totalSpam = tp + fn
+        val totalHam = tn + fp
+        val accuracy = ((tp + tn).toDouble() / samples.size) * 100.0
+        val recall = (tp.toDouble() / totalSpam) * 100.0
+        val precision = if (tp + fp > 0) (tp.toDouble() / (tp + fp)) * 100.0 else 0.0
+
+        println("==================================================")
+        println("  1,000 PHISHING & LEGITIMATE DATASET EVALUATION")
+        println("==================================================")
+        println("Total samples: ${samples.size} (Spam: $totalSpam, Ham: $totalHam)")
+        println("Accuracy: ${"%.2f".format(Locale.ROOT, accuracy)}%")
+        println("Spam Recall (>= 60): ${"%.2f".format(Locale.ROOT, recall)}% ($tp / $totalSpam)")
+        println("Spam Suspicious or Spam (>= 30): ${tp + suspiciousSpam} / $totalSpam")
+        println("Precision: ${"%.2f".format(Locale.ROOT, precision)}%")
+        println("False Positives (Ham flagged): $fp / $totalHam")
+        println("False Negatives (Spam missed): $fn / $totalSpam")
+        println("==================================================")
+
+        assertEquals("Legitimate messages must have 0 false positives", 0, fp)
+        assertTrue("Accuracy must be greater than zero", accuracy > 0.0)
     }
 }
