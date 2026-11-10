@@ -84,23 +84,25 @@ object SpamScorer {
     private val CREDENTIAL_VERB_FIRST = Regex(
         "(?<!never |do not |don't |na |kisi se |will never )\\b" +
             "(?:share|send|enter|provide|confirm|submit|forward|" +
-            "bhej(?:o|en|ain)?|batain|dal(?:ain|o|e)?|likh(?:ain|o)?)\\b" +
+            "bhej(?:o|en|ain)?|bata(?:in|en|yen|yein|o)|d(?:ain|en|ayen)|dal(?:ain|o|e)?|likh(?:ain|o)?)\\b" +
             "(?:\\s+\\S+){0,3}\\s+" +
-            "\\b(?:pin|mpin|otp|cvv|password|passcode|secret\\s*(?:code|pin)|cnic|id\\s*card(?:\\s*number)?)\\b"
+            "\\b(?:pin(?:\\s*code)?|mpin|otp|cvv|password|passcode|secret\\s*(?:code|pin)|" +
+            "cnic|id\\s*card(?:\\s*number)?)\\b"
     )
 
     private val CREDENTIAL_NOUN_FIRST = Regex(
-        "\\b(?:pin|mpin|otp|cvv|password|passcode|secret\\s*(?:code|pin)|cnic|id\\s*card(?:\\s*number)?)\\b" +
+        "\\b(?:pin(?:\\s*code)?|mpin|otp|cvv|password|passcode|secret\\s*(?:code|pin)|" +
+            "cnic|id\\s*card(?:\\s*number)?)\\b" +
             "(?:\\s+\\S+){0,3}\\s+" +
             "(?<!never |do not |don't |na |kisi se |will never )\\b" +
-            "(?:send|bhej(?:o|en|ain)?|share|batain|karain|kren|krain|" +
+            "(?:send|bhej(?:o|en|ain)?|share|bata(?:in|en|yen|yein|o)|d(?:ain|en|ayen)|karain|kren|krain|" +
             "provide|enter|submit|dal(?:ain|o|e)?|likh(?:ain|o)?)\\b"
     )
 
     private val CREDENTIAL_PATTERNS = listOf(
         CREDENTIAL_VERB_FIRST,
         CREDENTIAL_NOUN_FIRST,
-        Regex("\\b(?:atm\\s*pin|cvv|card\\s*expiry)\\b.*\\b(?:send|bhej|share|batain|verify)\\b"),
+        Regex("\\b(?:atm\\s*pin|cvv|card\\s*expiry)\\b.*\\b(?:send|bhej|share|batain|bataen|verify)\\b"),
         Regex("\\b(?:verify|update)\\b\\s+(?:your|ur)?\\s*\\b(?:identity|cnic|atm|pin|cvv)\\b")
     )
 
@@ -117,6 +119,13 @@ object SpamScorer {
             "relief|customs|auction|parcel|gift|fund|wazeefa|kist|ticket)\\b"
     )
 
+    // Wrong-transfer refund scam: money transferred by error/mistake requesting refund
+    private val REFUND_DEMAND_PATTERN = Regex(
+        "\\b(?:ghalti|mistake|by\\s*error|wrong\\s*(?:number|transaction))\\b.*" +
+            "\\b(?:transfer|bhej(?:a|e|i|o|en|ain)?|send|aa\\s*gaye|chale\\s*gaye)\\b.*" +
+            "\\b(?:wapis|return|refund|bhej\\s*(?:dain|den|dayen|do)|kar(?:ain|en|ein|o))\\b"
+    )
+
     // Impersonation: Institutions/brands combined with personal mobile senders
     private val INSTITUTION_PATTERNS = listOf(
         Regex("\\b(?:bisp|benazir|ehsaas|8171|jazzcash|easypaisa|pta|fbr|nadra)\\b"),
@@ -129,7 +138,10 @@ object SpamScorer {
     private val ACTION_PATTERNS = listOf(
         Regex(
             "\\b(?:call|contact|rabta|rabtah|claim|wasool|send|" +
-                "bhej(?:o|en|ain)?|share|batain|verify|tasdeeq|click|link|update|adjust)\\b"
+                "bhej(?:o|en|ain)?|share|bata(?:in|en|yen|yein|o)|d(?:ain|en|ayen)|" +
+                "sms\\s*(?:kar(?:in|ain|en)?|kr(?:in|en)?|bhej(?:o|en|ain)?)|" +
+                "details\\s*(?:send|bhej|share|bata|d(?:ain|en|ayen))|" +
+                "verify|tasdeeq|click|link|update|adjust)\\b"
         ),
         Regex("https?://"),
         Regex("(?:رابطہ|کال|دعویٰ|حاصل)")
@@ -155,7 +167,7 @@ object SpamScorer {
         "\\b(?:prize|lottery|lucky\\s*draw|jackpot|qurandazi|gold\\s*(?:bar)?|" +
             "\\bcar\\b|honda\\s*(?:125|city)|cash\\s*(?:reward|prize)|" +
             "you\\s*(?:have)?\\s*won|aap\\s*jeet\\s*chuke|\\binam\\b|wazeefa)\\b|" +
-            "(?:rs\\.?|pkr|\\$)\\s*[0-9,]+\\s*(?:inam|prize|cash|jeet|reward|bonus)\\b|" +
+            "(?:\\b(?:rs\\.?|pkr)|\\$)\\s*[0-9,]+\\s*(?:inam|prize|cash|jeet|reward|bonus)\\b|" +
             "(?:مبارک.*انعام|لاٹری|قرعہ اندازی)"
     )
 
@@ -181,6 +193,10 @@ object SpamScorer {
                 "fauran|foran|fori|abhi|arrest|legal\\s*action|gher\\s*qanooni|" +
                 "avoid\\s*(?:permanent)?\\s*closure|restore\\s*krwane)"
         ),
+        Regex(
+            "\\b(?:account|acc)\\b.*\\b(?:freeze|hack)\\b|" +
+                "\\bfreeze\\s*kr\\s*dia\\b|\\bunblock\\s*krwane\\b|\\bhack\\s*hone\\b"
+        ),
         Regex("(?:service\\s*(?:termination|interruption)|immediate\\s*verification)"),
         Regex("(?:فوراً|بند ہو|بلاک|غیر قانونی)")
     )
@@ -204,7 +220,7 @@ object SpamScorer {
         Regex("pay\\s*(?:release|customs|delivery|transfer)?\\s*fee"),
         Regex("limited\\s*(?:vouchers|time|slots|stock)"),
         Regex("(?:zero|0%|no)\\s*(?:percent|%|interest|mark-?up)"),
-        Regex("(?:jackpot|mega\\s*lucky\\s*draw|won.*(?:car|cash|prize))")
+        Regex("\\b(?:jackpot|mega\\s*lucky\\s*draw)\\b|\\bwon\\b.*\\b(?:car|cash|prize)\\b")
     )
 
     // Roman Urdu & Local scam keyword phrases
@@ -215,8 +231,8 @@ object SpamScorer {
                 "mil\\s*gaye|jaanch|kafalat|taleem|verify|relief)"
         ),
         Regex(
-            "(?:lottery|inam|prize|lucky\\s*draw|jackpot).*" +
-                "(?:nikli|nikla|lagi|mubarak|jeet|claim|wasool|lene|alert|won|winner)"
+            "\\b(?:lottery|inam|prize|lucky\\s*draw|jackpot)\\b.*" +
+                "\\b(?:nikli|nikla|lagi|mubarak|jeet|claim|wasool|lene|alert|won|winner)\\b"
         ),
         Regex("jeeto\\s*pakistan"),
         Regex("qurandazi.*(?:naam|inam|result|cash)"),
@@ -227,6 +243,8 @@ object SpamScorer {
         Regex("online\\s*(?:karobar|investment|kamai)"),
         Regex("bina\\s*(?:kisi\\s*)?investment"),
         Regex("qarz\\s*(?:bila|bina)\\s*sood"),
+        Regex("\\b(?:account|acc)\\b.*\\b(?:hack|freeze|unblock)\\b"),
+        Regex("\\bghalti\\s*se\\b.*\\b(?:rs\\.?|pkr|rupay|rupe|transfer|easypaisa|jazzcash)\\b.*\\bwapis\\b"),
         Regex("(?:call|rabta|rabtah|contact)\\s*(?:karain|karein|farmain|kijiye|krain).*03[0-9]{9}"),
         Regex("(?:بے نظیر|8171|احساس|وظیفہ|انعام|لاٹری|قرعہ اندازی|دعویٰ)")
     )
@@ -272,7 +290,7 @@ object SpamScorer {
             reasons.add(formattingReason)
         }
 
-        val normalizedBody = body.lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
+        val normalizedBody = normalizeBody(body)
 
         val linkEval = evaluateLinks(normalizedBody)
         score += linkEval.score
@@ -322,6 +340,15 @@ object SpamScorer {
 
         val clampedScore = max(0, min(MAX_SCORE, score))
         return SpamResult(clampedScore, reasons, clampedScore >= THRESHOLD_SPAM)
+    }
+
+    private fun normalizeBody(body: String): String {
+        val lower = body.lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
+        return lower
+            .replace(Regex("\\binaam\\b"), "inam")
+            .replace(Regex("\\bacounts?\\b"), "account")
+            .replace(Regex("\\bacc\\b"), "account")
+            .replace(Regex("\\btaseeq\\b"), "tasdeeq")
     }
 
     private fun checkFormatting(body: String): String? {
@@ -413,11 +440,12 @@ object SpamScorer {
             reasons.add("Urgent action / suspension threat (+$WEIGHT_URGENCY)")
         }
 
-        if (ADVANCE_FEE_DEMAND.containsMatchIn(normalizedBody) &&
-            ADVANCE_FEE_CONTEXT.containsMatchIn(normalizedBody)
-        ) {
+        val hasAdvanceFee = (ADVANCE_FEE_DEMAND.containsMatchIn(normalizedBody) &&
+            ADVANCE_FEE_CONTEXT.containsMatchIn(normalizedBody)) ||
+            REFUND_DEMAND_PATTERN.containsMatchIn(normalizedBody)
+        if (hasAdvanceFee) {
             score += WEIGHT_ADVANCE_FEE
-            reasons.add("Advance-fee fraud pattern (+$WEIGHT_ADVANCE_FEE)")
+            reasons.add("Advance-fee / refund fraud pattern (+$WEIGHT_ADVANCE_FEE)")
         }
 
         val enCount = ENGLISH_SPAM_KEYWORDS.count { it.containsMatchIn(normalizedBody) }
@@ -459,10 +487,7 @@ object SpamScorer {
         val hasRiskyLink = SHORT_URL_REGEX.containsMatchIn(normalizedBody) ||
             RISKY_TLD_REGEX.containsMatchIn(normalizedBody) ||
             SUSPICIOUS_HYPHEN_DOMAIN_REGEX.containsMatchIn(normalizedBody)
-        val hasContactCTA = normalizedBody.contains("call") ||
-            normalizedBody.contains("rabta") ||
-            normalizedBody.contains("whatsapp") ||
-            Regex("\\b03[0-9]{9}\\b").containsMatchIn(normalizedBody) ||
+        val hasContactCTA = Regex("\\b(?:call|rabta|whatsapp|03[0-9]{9})\\b").containsMatchIn(normalizedBody) ||
             hasRiskyLink
         return hasCredential || (hasLink && hasUrgency) || (hasPrize && hasContactCTA)
     }

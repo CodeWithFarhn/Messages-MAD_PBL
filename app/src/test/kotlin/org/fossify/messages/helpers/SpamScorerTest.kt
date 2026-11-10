@@ -489,11 +489,40 @@ class SpamScorerTest {
         assertTrue(result.reasons.isEmpty())
     }
 
+    @Test
+    fun testLegitimateBoundaryWordsScoreBelow30() {
+        val boundarySentences = listOf(
+            "+923001112233" to "Meet me near the botanical garden at 5 PM for evening tea.",
+            "+923012223344" to "Your hidden gift is kept inside the desk drawer at home.",
+            "+923023334455" to "Every student must carry their university ID card to the exam hall.",
+            "+923034445566" to "You now have access to the library portal for downloading research papers.",
+            "+923045556677" to "Please check the bank account statement before filing the annual report.",
+            "+923056667788" to "Here are the HBL branch details and office timings for tomorrow's visit."
+        )
+
+        for ((address, body) in boundarySentences) {
+            val res = SpamScorer.score(address, body)
+            assertTrue(
+                "Legitimate boundary sentence scored ${res.score} (>= 30): '$body' | Reasons: ${res.reasons}",
+                res.score < SpamScorer.THRESHOLD_SUSPICIOUS
+            )
+        }
+    }
+
+    companion object {
+        const val STRATIFIED_SPLIT_SEED = 42L
+    }
+
     data class PhishingSample(
         val address: String,
         val body: String,
         val label: String,
         val category: String,
+    )
+
+    data class SplitResult(
+        val tuning: List<PhishingSample>,
+        val heldOut: List<PhishingSample>,
     )
 
     private fun loadPhishing1000Samples(): List<PhishingSample> {
@@ -520,6 +549,139 @@ class SpamScorerTest {
         return list
     }
 
+    private fun splitStratified5050(samples: List<PhishingSample>): SplitResult {
+        val rng = java.util.Random(STRATIFIED_SPLIT_SEED)
+        val tuning = mutableListOf<PhishingSample>()
+        val heldOut = mutableListOf<PhishingSample>()
+
+        val byCat = samples.groupBy { it.category }
+        for (category in byCat.keys.sorted()) {
+            val list = byCat[category]!!.toMutableList()
+            for (i in list.size - 1 downTo 1) {
+                val j = rng.nextInt(i + 1)
+                val temp = list[i]
+                list[i] = list[j]
+                list[j] = temp
+            }
+            val half = list.size / 2
+            tuning.addAll(list.take(half))
+            heldOut.addAll(list.drop(half))
+        }
+        return SplitResult(tuning, heldOut)
+    }
+
+    data class PhishingEvalMetrics(
+        val name: String,
+        val total: Int,
+        val totalSpam: Int,
+        val totalHam: Int,
+        val spamCaught60: Int,
+        val spamCaught30: Int,
+        val hamFlagged60: Int,
+        val hamFlagged30: Int,
+        val categorySpamCaught60: Map<String, Pair<Int, Int>>,
+    )
+
+    private fun evaluatePhishingSubset(name: String, subset: List<PhishingSample>): PhishingEvalMetrics {
+        var spamCaught60 = 0
+        var spamCaught30 = 0
+        var hamFlagged60 = 0
+        var hamFlagged30 = 0
+        var totalSpam = 0
+        var totalHam = 0
+
+        val catSpamTotal = mutableMapOf<String, Int>()
+        val catSpamCaught = mutableMapOf<String, Int>()
+
+        for (sample in subset) {
+            val res = SpamScorer.score(sample.address, sample.body)
+            val isSpam = sample.label == "spam"
+            if (isSpam) {
+                totalSpam++
+                catSpamTotal[sample.category] = (catSpamTotal[sample.category] ?: 0) + 1
+                if (res.score >= SpamScorer.THRESHOLD_SPAM) {
+                    spamCaught60++
+                    catSpamCaught[sample.category] = (catSpamCaught[sample.category] ?: 0) + 1
+                }
+                if (res.score >= SpamScorer.THRESHOLD_SUSPICIOUS) {
+                    spamCaught30++
+                }
+            } else {
+                totalHam++
+                if (res.score >= SpamScorer.THRESHOLD_SPAM) {
+                    hamFlagged60++
+                }
+                if (res.score >= SpamScorer.THRESHOLD_SUSPICIOUS) {
+                    hamFlagged30++
+                }
+            }
+        }
+
+        val catMap = mutableMapOf<String, Pair<Int, Int>>()
+        for (cat in catSpamTotal.keys) {
+            catMap[cat] = Pair(catSpamCaught[cat] ?: 0, catSpamTotal[cat] ?: 0)
+        }
+
+        return PhishingEvalMetrics(
+            name = name,
+            total = subset.size,
+            totalSpam = totalSpam,
+            totalHam = totalHam,
+            spamCaught60 = spamCaught60,
+            spamCaught30 = spamCaught30,
+            hamFlagged60 = hamFlagged60,
+            hamFlagged30 = hamFlagged30,
+            categorySpamCaught60 = catMap
+        )
+    }
+
+    private fun printMetrics(m: PhishingEvalMetrics) {
+        val recall = if (m.totalSpam > 0) (m.spamCaught60.toDouble() / m.totalSpam) * 100.0 else 0.0
+        val precision = if (m.spamCaught60 + m.hamFlagged60 > 0) {
+            (m.spamCaught60.toDouble() / (m.spamCaught60 + m.hamFlagged60)) * 100.0
+        } else 100.0
+        println("--- ${m.name} ---")
+        println("Total: ${m.total} (Spam: ${m.totalSpam}, Ham: ${m.totalHam})")
+        println("Spam caught at 60 (x/y): ${m.spamCaught60}/${m.totalSpam} (${"%.2f".format(Locale.ROOT, recall)}%)")
+        println("Legitimate flagged at 60 (x/y): ${m.hamFlagged60}/${m.totalHam}")
+        println("Spam at 30 or higher (x/y): ${m.spamCaught30}/${m.totalSpam}")
+        println("Precision: ${"%.2f".format(Locale.ROOT, precision)}%")
+        println("Category Spam Recall (>= 60):")
+        for ((cat, counts) in m.categorySpamCaught60.entries.sortedByDescending { it.value.second }) {
+            val pct = if (counts.second > 0) (counts.first.toDouble() / counts.second) * 100.0 else 0.0
+            println("  $cat: ${counts.first}/${counts.second} (${"%.1f".format(Locale.ROOT, pct)}%)")
+        }
+    }
+
+    private fun printTuningMisses(tuning: List<PhishingSample>) {
+        println("\n--- TUNING HALF MISSED SPAM SAMPLES (< 60) ---")
+        val missed = tuning.filter { it.label == "spam" }
+            .map { it to SpamScorer.score(it.address, it.body) }
+            .filter { it.second.score < SpamScorer.THRESHOLD_SPAM }
+
+        for ((index, pair) in missed.take(10).withIndex()) {
+            val (sample, res) = pair
+            println("[Tuning Miss #${index + 1}] Score: ${res.score} | Cat: ${sample.category}")
+            println("  Text: ${sample.body}")
+            println("  Reasons: ${res.reasons.joinToString("; ")}")
+        }
+        println("Total Tuning Misses: ${missed.size}")
+    }
+
+    private fun printHighestScoringHam(samples: List<PhishingSample>) {
+        val highestScoringHam = samples.filter { it.label == "ham" }
+            .map { it to SpamScorer.score(it.address, it.body) }
+            .sortedByDescending { it.second.score }
+            .take(5)
+
+        println("\n--- TOP HIGHEST-SCORING LEGITIMATE MESSAGES ---")
+        for ((sample, res) in highestScoringHam) {
+            println("Score: ${res.score} | Cat: ${sample.category} | From: ${sample.address}")
+            println("  Text: ${sample.body}")
+            println("  Reasons: ${res.reasons.joinToString("; ")}")
+        }
+    }
+
     @Test
     fun testSpamScorerOn1000PhishingDataset() {
         val samples = loadPhishing1000Samples()
@@ -529,50 +691,29 @@ class SpamScorerTest {
         }
         assertTrue("Dataset must contain 1000 samples", samples.size >= 1000)
 
-        var tp = 0
-        var fp = 0
-        var tn = 0
-        var fn = 0
-        var suspiciousSpam = 0
-
-        for (sample in samples) {
-            val res = SpamScorer.score(sample.address, sample.body)
-            val isActualSpam = sample.label == "spam"
-            val isFlagged = res.isSpam
-
-            if (isActualSpam && isFlagged) {
-                tp++
-            } else if (isActualSpam) {
-                fn++
-                if (res.score >= SpamScorer.THRESHOLD_SUSPICIOUS) {
-                    suspiciousSpam++
-                }
-            } else if (isFlagged) {
-                fp++
-            } else {
-                tn++
-            }
-        }
-
-        val totalSpam = tp + fn
-        val totalHam = tn + fp
-        val accuracy = ((tp + tn).toDouble() / samples.size) * 100.0
-        val recall = (tp.toDouble() / totalSpam) * 100.0
-        val precision = if (tp + fp > 0) (tp.toDouble() / (tp + fp)) * 100.0 else 0.0
+        val split = splitStratified5050(samples)
 
         println("==================================================")
-        println("  1,000 PHISHING & LEGITIMATE DATASET EVALUATION")
-        println("==================================================")
-        println("Total samples: ${samples.size} (Spam: $totalSpam, Ham: $totalHam)")
-        println("Accuracy: ${"%.2f".format(Locale.ROOT, accuracy)}%")
-        println("Spam Recall (>= 60): ${"%.2f".format(Locale.ROOT, recall)}% ($tp / $totalSpam)")
-        println("Spam Suspicious or Spam (>= 30): ${tp + suspiciousSpam} / $totalSpam")
-        println("Precision: ${"%.2f".format(Locale.ROOT, precision)}%")
-        println("False Positives (Ham flagged): $fp / $totalHam")
-        println("False Negatives (Spam missed): $fn / $totalSpam")
+        println("  1,000 PHISHING DATASET EVALUATION")
+        println("  Deterministic Stratified Split Seed: $STRATIFIED_SPLIT_SEED")
         println("==================================================")
 
-        assertEquals("Legitimate messages must have 0 false positives", 0, fp)
-        assertTrue("Accuracy must be greater than zero", accuracy > 0.0)
+        val fullMetrics = evaluatePhishingSubset("FULL SET (1,000)", samples)
+        printMetrics(fullMetrics)
+
+        val tuningMetrics = evaluatePhishingSubset("TUNING HALF (50%)", split.tuning)
+        printMetrics(tuningMetrics)
+
+        val heldOutMetrics = evaluatePhishingSubset("HELD-OUT HALF (50% - AGGREGATES ONLY)", split.heldOut)
+        printMetrics(heldOutMetrics)
+
+        printTuningMisses(split.tuning)
+        printHighestScoringHam(samples)
+        println("==================================================")
+
+        // Hard constraints: zero legitimate messages at 60 or more
+        assertEquals("Full set must have 0 false positives", 0, fullMetrics.hamFlagged60)
+        assertEquals("Tuning half must have 0 false positives", 0, tuningMetrics.hamFlagged60)
+        assertEquals("Held-out half must have 0 false positives", 0, heldOutMetrics.hamFlagged60)
     }
 }
