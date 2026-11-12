@@ -53,6 +53,10 @@ class Config(context: Context) : BaseConfig(context) {
         set(lockScreenVisibilitySetting) = prefs.edit()
             .putInt(LOCK_SCREEN_VISIBILITY, lockScreenVisibilitySetting).apply()
 
+    var sendDelaySeconds: Int
+        get() = prefs.getInt(SEND_DELAY_SECONDS, SEND_DELAY_NONE)
+        set(sendDelaySeconds) = prefs.edit().putInt(SEND_DELAY_SECONDS, sendDelaySeconds).apply()
+
     var mmsFileSizeLimit: Long
         get() = prefs.getLong(MMS_FILE_SIZE_LIMIT, FILE_SIZE_200_KB)
         set(mmsFileSizeLimit) = prefs.edit().putLong(MMS_FILE_SIZE_LIMIT, mmsFileSizeLimit).apply()

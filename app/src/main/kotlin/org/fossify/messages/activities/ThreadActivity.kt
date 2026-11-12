@@ -11,6 +11,8 @@ import android.content.res.ColorStateList
 import android.graphics.drawable.LayerDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.ContactsContract
 import android.provider.DocumentsContract
 import android.provider.MediaStore
@@ -48,6 +50,7 @@ import androidx.core.view.updateLayoutParams
 import androidx.documentfile.provider.DocumentFile
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.snackbar.Snackbar
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import org.fossify.commons.dialogs.ConfirmationDialog
@@ -230,6 +233,11 @@ class ThreadActivity : SimpleActivity() {
 
     private var isAttachmentPickerVisible = false
 
+    private var pendingSend: PendingSend? = null
+    private val sendDelayHandler = Handler(Looper.getMainLooper())
+    private var sendDelayRunnable: Runnable? = null
+    private var sendDelaySnackbar: Snackbar? = null
+
     private val binding by viewBinding(ActivityThreadBinding::inflate)
 
     override fun onNewIntent(intent: Intent) {
@@ -314,6 +322,7 @@ class ThreadActivity : SimpleActivity() {
 
     override fun onPause() {
         super.onPause()
+        flushPendingSend()
         saveDraftMessage()
         bus?.post(Events.RefreshConversations())
         isActivityVisible = false
@@ -322,6 +331,7 @@ class ThreadActivity : SimpleActivity() {
     override fun onStop() {
         super.onStop()
         AudioPlayerManager.release()
+        flushPendingSend()
         saveDraftMessage()
     }
 
@@ -337,6 +347,7 @@ class ThreadActivity : SimpleActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        flushPendingSend()
         bus?.unregister(this)
     }
 
@@ -1583,6 +1594,8 @@ class ThreadActivity : SimpleActivity() {
     }
 
     private fun sendMessage() {
+        flushPendingSend()
+
         var text = binding.messageHolder.threadTypeMessage.value
         if (text.isEmpty() && getAttachmentSelections().isEmpty()) {
             showErrorToast(getString(org.fossify.commons.R.string.unknown_error_occurred))
@@ -1598,7 +1611,12 @@ class ThreadActivity : SimpleActivity() {
         if (isScheduledMessage) {
             sendScheduledMessage(text, subscriptionId)
         } else if (!confirmGroupMessageSendIfNeeded()) {
-            sendNormalMessage(text, subscriptionId)
+            val delaySeconds = config.sendDelaySeconds
+            if (shouldDelaySend(text, delaySeconds)) {
+                scheduleDelayedSend(text, subscriptionId, delaySeconds)
+            } else {
+                sendNormalMessage(text, subscriptionId)
+            }
         }
     }
 
@@ -1671,7 +1689,7 @@ class ThreadActivity : SimpleActivity() {
         }
     }
 
-    private fun sendNormalMessage(text: String, subscriptionId: Int) {
+    private fun sendNormalMessage(text: String, subscriptionId: Int, clearInput: Boolean = true) {
         val addresses = participants.getAddresses()
         val attachments = buildMessageAttachments()
 
@@ -1686,7 +1704,9 @@ class ThreadActivity : SimpleActivity() {
                     insertOrUpdateMessage(message)
                 }
             }
-            clearCurrentMessage()
+            if (clearInput) {
+                clearCurrentMessage()
+            }
 
         } catch (e: Exception) {
             showErrorToast(e)
@@ -1695,6 +1715,98 @@ class ThreadActivity : SimpleActivity() {
                 e.localizedMessage ?: getString(org.fossify.commons.R.string.unknown_error_occurred)
             )
         }
+    }
+
+    private fun shouldDelaySend(text: String, delaySeconds: Int): Boolean {
+        if (delaySeconds <= 0 || messageToResend != null) {
+            return false
+        }
+        return text.isNotEmpty() && !isMmsMessage(text)
+    }
+
+    private fun scheduleDelayedSend(text: String, subscriptionId: Int, delaySeconds: Int) {
+        val pending = PendingSend(text, subscriptionId, threadId, delaySeconds)
+        pendingSend = pending
+
+        hideKeyboard()
+        binding.messageHolder.threadTypeMessage.clearFocus()
+        clearCurrentMessage()
+
+        val snackbar = Snackbar.make(
+            binding.root,
+            getString(R.string.sending_in_n_seconds, delaySeconds),
+            Snackbar.LENGTH_INDEFINITE
+        )
+        snackbar.anchorView = binding.messageHolder.root
+        snackbar.setActionTextColor(getProperPrimaryColor())
+        snackbar.setAction(org.fossify.commons.R.string.cancel) {
+            cancelPendingSend()
+        }
+        snackbar.addCallback(object : Snackbar.Callback() {
+            override fun onDismissed(transientBottomBar: Snackbar?, event: Int) {
+                if (event == DISMISS_EVENT_SWIPE) {
+                    flushPendingSend()
+                }
+            }
+        })
+        snackbar.show()
+        sendDelaySnackbar = snackbar
+
+        val runnable = object : Runnable {
+            override fun run() {
+                val currentPending = pendingSend ?: return
+                currentPending.remainingSeconds--
+                if (currentPending.remainingSeconds <= 0) {
+                    sendDelaySnackbar?.dismiss()
+                    sendDelaySnackbar = null
+                    sendDelayRunnable = null
+                    val toSend = pendingSend
+                    pendingSend = null
+                    if (toSend != null) {
+                        sendNormalMessage(toSend.text, toSend.subscriptionId, clearInput = false)
+                    }
+                } else {
+                    sendDelaySnackbar?.setText(
+                        getString(R.string.sending_in_n_seconds, currentPending.remainingSeconds)
+                    )
+                    sendDelayHandler.postDelayed(this, 1000L)
+                }
+            }
+        }
+        sendDelayRunnable = runnable
+        sendDelayHandler.postDelayed(runnable, 1000L)
+    }
+
+    private fun cancelPendingSend() {
+        sendDelayRunnable?.let { sendDelayHandler.removeCallbacks(it) }
+        sendDelayRunnable = null
+        sendDelaySnackbar?.dismiss()
+        sendDelaySnackbar = null
+
+        val pending = pendingSend ?: return
+        pendingSend = null
+
+        val currentText = binding.messageHolder.threadTypeMessage.text?.toString().orEmpty()
+        val restoredText = if (currentText.isEmpty()) {
+            pending.text
+        } else {
+            "${pending.text} $currentText"
+        }
+        binding.messageHolder.threadTypeMessage.setText(restoredText)
+        binding.messageHolder.threadTypeMessage.setSelection(restoredText.length)
+        checkSendMessageAvailability()
+    }
+
+    private fun flushPendingSend() {
+        sendDelayRunnable?.let { sendDelayHandler.removeCallbacks(it) }
+        sendDelayRunnable = null
+        sendDelaySnackbar?.dismiss()
+        sendDelaySnackbar = null
+
+        val pending = pendingSend ?: return
+        pendingSend = null
+
+        sendNormalMessage(pending.text, pending.subscriptionId, clearInput = false)
     }
 
     private fun clearCurrentMessage() {
@@ -2207,4 +2319,11 @@ class ThreadActivity : SimpleActivity() {
         private const val SCROLL_TO_BOTTOM_FAB_LIMIT = 20
         private const val PREFETCH_THRESHOLD = 45
     }
+
+    private data class PendingSend(
+        val text: String,
+        val subscriptionId: Int,
+        val threadId: Long,
+        var remainingSeconds: Int
+    )
 }

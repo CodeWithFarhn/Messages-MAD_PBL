@@ -46,6 +46,10 @@ import org.fossify.messages.helpers.LOCK_SCREEN_NOTHING
 import org.fossify.messages.helpers.LOCK_SCREEN_SENDER
 import org.fossify.messages.helpers.LOCK_SCREEN_SENDER_MESSAGE
 import org.fossify.messages.helpers.MessagesImporter
+import org.fossify.messages.helpers.SEND_DELAY_10_SECONDS
+import org.fossify.messages.helpers.SEND_DELAY_3_SECONDS
+import org.fossify.messages.helpers.SEND_DELAY_5_SECONDS
+import org.fossify.messages.helpers.SEND_DELAY_NONE
 import org.fossify.messages.helpers.SPAM_SENSITIVITY_HIGH
 import org.fossify.messages.helpers.SPAM_SENSITIVITY_LOW
 import org.fossify.messages.helpers.SPAM_SENSITIVITY_MEDIUM
@@ -119,6 +123,7 @@ class SettingsActivity : SimpleActivity() {
         setupKeepConversationsArchived()
         setupLockScreenVisibility()
         setupMMSFileSizeLimit()
+        setupSendDelay()
         setupUseRecycleBin()
         setupEmptyRecycleBin()
         setupAppPasswordProtection()
@@ -386,6 +391,32 @@ class SettingsActivity : SimpleActivity() {
             }
         }
     }
+
+    private fun setupSendDelay() = binding.apply {
+        settingsSendDelay.text = getSendDelayText()
+        settingsSendDelayHolder.setOnClickListener {
+            val items = arrayListOf(
+                RadioItem(SEND_DELAY_NONE, getString(R.string.send_delay_off)),
+                RadioItem(SEND_DELAY_3_SECONDS, getString(R.string.send_delay_3_seconds)),
+                RadioItem(SEND_DELAY_5_SECONDS, getString(R.string.send_delay_5_seconds)),
+                RadioItem(SEND_DELAY_10_SECONDS, getString(R.string.send_delay_10_seconds)),
+            )
+
+            RadioGroupDialog(this@SettingsActivity, items, config.sendDelaySeconds) {
+                config.sendDelaySeconds = it as Int
+                settingsSendDelay.text = getSendDelayText()
+            }
+        }
+    }
+
+    private fun getSendDelayText() = getString(
+        when (config.sendDelaySeconds) {
+            SEND_DELAY_3_SECONDS -> R.string.send_delay_3_seconds
+            SEND_DELAY_5_SECONDS -> R.string.send_delay_5_seconds
+            SEND_DELAY_10_SECONDS -> R.string.send_delay_10_seconds
+            else -> R.string.send_delay_off
+        }
+    )
 
     private fun setupUseRecycleBin() = binding.apply {
         updateRecycleBinButtons()

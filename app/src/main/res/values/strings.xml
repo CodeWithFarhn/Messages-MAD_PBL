@@ -200,6 +200,12 @@
     <string name="sender_marked_as_spam">Sender marked as spam</string>
     <string name="message_restored">Message restored</string>
     <string name="spam_score">Score: %1$d</string>
+    <string name="send_delay">Send delay</string>
+    <string name="send_delay_off">Off</string>
+    <string name="send_delay_3_seconds">3 seconds</string>
+    <string name="send_delay_5_seconds">5 seconds</string>
+    <string name="send_delay_10_seconds">10 seconds</string>
+    <string name="sending_in_n_seconds">Sending in %ds…</string>
     <!--
         Haven't found some strings? There's more at
         https://github.com/FossifyOrg/Commons/tree/master/commons/src/main/res

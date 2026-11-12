@@ -50,6 +50,12 @@ const val IS_LAUNCHED_FROM_SHORTCUT = "is_launched_from_shortcut"
 const val KEEP_CONVERSATIONS_ARCHIVED = "keep_conversations_archived"
 const val SPAM_FILTER_ENABLED = "spam_filter_enabled"
 const val SPAM_SENSITIVITY = "spam_sensitivity"
+const val SEND_DELAY_SECONDS = "send_delay_seconds"
+
+const val SEND_DELAY_NONE = 0
+const val SEND_DELAY_3_SECONDS = 3
+const val SEND_DELAY_5_SECONDS = 5
+const val SEND_DELAY_10_SECONDS = 10
 
 const val SPAM_SENSITIVITY_LOW = 70
 const val SPAM_SENSITIVITY_MEDIUM = 60
