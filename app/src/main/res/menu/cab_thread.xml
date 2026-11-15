@@ -10,6 +10,12 @@
         android:title="@string/copy_to_clipboard"
         app:showAsAction="always" />
     <item
+        android:id="@+id/cab_star"
+        android:icon="@drawable/ic_star_outline_vector"
+        android:showAsAction="always"
+        android:title="@string/star"
+        app:showAsAction="always" />
+    <item
         android:id="@+id/cab_share"
         android:icon="@drawable/ic_share_vector"
         android:showAsAction="always"

@@ -11,5 +11,7 @@ data class StarredMessage(
     @ColumnInfo(name = "message_id") val messageId: Long,
     @ColumnInfo(name = "is_mms") val isMms: Boolean,
     @ColumnInfo(name = "starred_ts") val starredTs: Long,
-)
+) {
+    fun getStarredKey(): Long = (messageId shl 1) or (if (isMms) 1L else 0L)
+}
 

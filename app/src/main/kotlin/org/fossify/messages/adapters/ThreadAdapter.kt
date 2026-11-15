@@ -101,6 +101,7 @@ class ThreadAdapter(
     val deleteMessages: (messages: List<Message>, toRecycleBin: Boolean, fromRecycleBin: Boolean) -> Unit
 ) : MyRecyclerViewListAdapter<ThreadItem>(activity, recyclerView, ThreadItemDiffCallback(), itemClick) {
     private var fontSize = activity.getTextSize()
+    var starredKeys: Set<Long> = emptySet()
 
     @SuppressLint("MissingPermission")
     private val hasMultipleSIMCards = (activity.subscriptionManagerCompat().activeSubscriptionInfoList?.size ?: 0) > 1
@@ -120,13 +121,21 @@ class ThreadAdapter(
 
     override fun getActionMenuId() = R.menu.cab_thread
 
+    @Suppress("CyclomaticComplexMethod")
     override fun prepareActionMode(menu: Menu) {
         val isOneItemSelected = isOneItemSelected()
-        val selectedMessages = getSelectedItems().filterIsInstance<Message>()
+        val selectedItems = getSelectedItems()
+        val selectedMessages = selectedItems.filterIsInstance<Message>()
         val hasText = selectedMessages.any { it.body.isNotEmpty() }
-        val showSaveAs = getSelectedItems().all {
+        val showSaveAs = selectedItems.all {
             it is Message && (it.attachment?.attachments?.size ?: 0) > 0
         } && getSelectedAttachments().isNotEmpty()
+
+        val canStar = !isRecycleBin &&
+            selectedItems.isNotEmpty() &&
+            selectedItems.all { it is Message && it.id != DELAYED_MESSAGE_ID }
+
+        val allStarred = canStar && selectedMessages.all { starredKeys.contains(it.getStarredKey()) }
 
         menu.apply {
             findItem(R.id.cab_copy_to_clipboard).isVisible = hasText
@@ -136,6 +145,13 @@ class ThreadAdapter(
             findItem(R.id.cab_select_text).isVisible = isOneItemSelected && hasText
             findItem(R.id.cab_properties).isVisible = isOneItemSelected
             findItem(R.id.cab_restore).isVisible = isRecycleBin
+            findItem(R.id.cab_star)?.apply {
+                isVisible = canStar
+                if (canStar) {
+                    setTitle(if (allStarred) R.string.unstar else R.string.star)
+                    setIcon(if (allStarred) R.drawable.ic_star_vector else R.drawable.ic_star_outline_vector)
+                }
+            }
         }
     }
 
@@ -154,7 +170,23 @@ class ThreadAdapter(
             R.id.cab_restore -> askConfirmRestore()
             R.id.cab_select_all -> selectAll()
             R.id.cab_properties -> showMessageDetails()
+            R.id.cab_star -> starOrUnstarSelectedMessages()
         }
+    }
+
+    private fun starOrUnstarSelectedMessages() {
+        val selectedMessages = getSelectedItems()
+            .filterIsInstance<Message>()
+            .filter { it.id != DELAYED_MESSAGE_ID }
+        if (selectedMessages.isNotEmpty() && !isRecycleBin) {
+            (activity as? ThreadActivity)?.toggleStarMessages(selectedMessages)
+            finishActMode()
+        }
+    }
+
+    fun updateStarredKeys(newKeys: Set<Long>) {
+        starredKeys = newKeys
+        notifyDataSetChanged()
     }
 
     override fun getSelectableItemCount() = currentList.filterIsInstance<Message>().size
@@ -390,6 +422,20 @@ class ThreadAdapter(
                 setupSentMessageView(messageBinding = this, message = message)
             }
 
+            val isStarred = starredKeys.contains(message.getStarredKey())
+            threadMessageStar.beVisibleIf(isStarred)
+            if (isStarred) {
+                val anchorId = if (message.body.isNotEmpty()) {
+                    threadMessageBody.id
+                } else {
+                    threadMessageAttachmentsHolder.id
+                }
+                threadMessageStar.updateLayoutParams<RelativeLayout.LayoutParams> {
+                    addRule(RelativeLayout.ALIGN_END, anchorId)
+                    addRule(RelativeLayout.ALIGN_BOTTOM, anchorId)
+                }
+            }
+
             threadMessageAttachmentsHolder.removeAllViews()
             if (message.attachment?.attachments?.isNotEmpty() == true) {
                 threadMessageAttachmentsHolder.beVisible()
@@ -437,6 +483,8 @@ class ThreadAdapter(
                 setLinkTextColor(activity.getProperPrimaryColor())
             }
 
+            threadMessageStar.applyColorFilter(activity.getProperPrimaryColor())
+
             if (!activity.isFinishing && !activity.isDestroyed) {
                 val contactLetterIcon = SimpleContactsHelper(activity).getContactLetterIcon(message.senderName)
                 val placeholder = contactLetterIcon.toDrawable(activity.resources)
@@ -467,6 +515,8 @@ class ThreadAdapter(
 
             val primaryColor = activity.getProperPrimaryColor()
             val contrastColor = primaryColor.getContrastColor()
+
+            threadMessageStar.applyColorFilter(contrastColor)
 
             threadMessageBody.apply {
                 updateLayoutParams<RelativeLayout.LayoutParams> {

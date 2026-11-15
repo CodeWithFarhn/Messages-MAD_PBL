@@ -52,6 +52,8 @@ data class Message(
         return (id xor (id ushr Int.SIZE_BITS)).toInt()
     }
 
+    fun getStarredKey(): Long = (id shl 1) or (if (isMMS) 1L else 0L)
+
     companion object {
         fun areItemsTheSame(old: Message, new: Message): Boolean {
             return old.id == new.id

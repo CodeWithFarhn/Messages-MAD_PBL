@@ -207,6 +207,12 @@
     <string name="send_delay_10_seconds">10 seconds</string>
     <string name="sending_in_n_seconds">Sending in %ds…</string>
     <string name="cancel">Cancel</string>
+    <!-- Starred Messages -->
+    <string name="star">Star</string>
+    <string name="unstar">Unstar</string>
+    <string name="starred_only">Starred only</string>
+    <string name="show_all_messages">Show all messages</string>
+    <string name="no_starred_messages">No starred messages in this conversation</string>
     <!--
         Haven't found some strings? There's more at
         https://github.com/FossifyOrg/Commons/tree/master/commons/src/main/res

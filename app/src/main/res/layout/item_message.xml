@@ -65,5 +65,18 @@
             android:textSize="@dimen/normal_text_size"
             tools:drawableEndCompat="@drawable/scheduled_message_icon"
             tools:text="Message content" />
+
+        <ImageView
+            android:id="@+id/thread_message_star"
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:layout_alignEnd="@+id/thread_message_body"
+            android:layout_alignBottom="@+id/thread_message_body"
+            android:layout_marginEnd="@dimen/small_margin"
+            android:layout_marginBottom="@dimen/small_margin"
+            android:src="@drawable/ic_star_vector"
+            android:visibility="gone"
+            tools:ignore="ContentDescription"
+            tools:visibility="visible" />
     </RelativeLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>

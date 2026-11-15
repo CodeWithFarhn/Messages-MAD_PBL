@@ -151,12 +151,15 @@ import org.fossify.messages.extensions.restoreMessageFromRecycleBin
 import org.fossify.messages.extensions.saveSmsDraft
 import org.fossify.messages.extensions.shouldUnarchive
 import org.fossify.messages.extensions.showWithAnimation
+import org.fossify.messages.extensions.starredMessagesDB
 import org.fossify.messages.extensions.subscriptionManagerCompat
 import org.fossify.messages.extensions.toArrayList
 import org.fossify.messages.extensions.toSortedMessages
 import org.fossify.messages.extensions.updateConversationArchivedStatus
 import org.fossify.messages.extensions.updateLastConversationMessage
 import org.fossify.messages.extensions.updateScheduledMessagesThreadId
+import org.fossify.messages.models.StarredMessage
+import java.util.Collections
 import org.fossify.messages.helpers.AudioPlayerManager
 import org.fossify.messages.helpers.CAPTURE_AUDIO_INTENT
 import org.fossify.messages.helpers.CAPTURE_PHOTO_INTENT
@@ -236,6 +239,8 @@ class ThreadActivity : SimpleActivity() {
     private var pendingSend: PendingSend? = null
     private val sendDelayHandler = Handler(Looper.getMainLooper())
     private var sendDelayRunnable: Runnable? = null
+    private var isStarredOnlyFilterActive = false
+    private val starredMessageKeys = Collections.synchronizedSet(HashSet<Long>())
 
     private val binding by viewBinding(ActivityThreadBinding::inflate)
 
@@ -387,6 +392,10 @@ class ThreadActivity : SimpleActivity() {
                 participants.size == 1 && participants.first().name == firstPhoneNumber && !isRecycleBin
             findItem(R.id.copy_number).isVisible =
                 participants.size == 1 && !firstPhoneNumber.isNullOrEmpty() && !isRecycleBin
+            findItem(R.id.toggle_starred_only).apply {
+                isVisible = !isRecycleBin
+                title = getString(if (isStarredOnlyFilterActive) R.string.show_all_messages else R.string.starred_only)
+            }
         }
     }
 
@@ -397,6 +406,7 @@ class ThreadActivity : SimpleActivity() {
         }
     }
 
+    @Suppress("CyclomaticComplexMethod")
     private fun handleMenuItemAction(menuItem: MenuItem): Boolean {
         when (menuItem.itemId) {
             R.id.block_number -> blockNumber()
@@ -411,10 +421,68 @@ class ThreadActivity : SimpleActivity() {
             R.id.dial_number -> dialNumber()
             R.id.manage_people -> managePeople()
             R.id.mark_as_unread -> markAsUnread()
+            R.id.toggle_starred_only -> toggleStarredOnlyFilter()
             else -> return false
         }
 
         return true
+    }
+
+    private fun toggleStarredOnlyFilter() {
+        if (!isStarredOnlyFilterActive) {
+            val hasStarred = messages.any { starredMessageKeys.contains(it.getStarredKey()) }
+            if (!hasStarred) {
+                toast(R.string.no_starred_messages)
+                return
+            }
+            isStarredOnlyFilterActive = true
+        } else {
+            isStarredOnlyFilterActive = false
+        }
+        setupAdapter()
+    }
+
+    private fun loadStarredMessageKeys() {
+        val allStarred = try {
+            starredMessagesDB.getAll()
+        } catch (e: Exception) {
+            emptyList()
+        }
+        starredMessageKeys.clear()
+        starredMessageKeys.addAll(allStarred.map { it.getStarredKey() })
+    }
+
+    fun toggleStarMessages(messagesToToggle: List<Message>) {
+        val validMessages = messagesToToggle.filter { it.id != DELAYED_MESSAGE_ID }
+        if (validMessages.isEmpty() || isRecycleBin) return
+
+        val allStarred = validMessages.all { starredMessageKeys.contains(it.getStarredKey()) }
+        ensureBackgroundThread {
+            if (allStarred) {
+                validMessages.forEach { message ->
+                    starredMessagesDB.delete(message.id, message.isMMS)
+                    starredMessageKeys.remove(message.getStarredKey())
+                }
+            } else {
+                val now = System.currentTimeMillis()
+                validMessages.forEach { message ->
+                    val starredMessage = StarredMessage(
+                        messageId = message.id,
+                        isMms = message.isMMS,
+                        starredTs = now
+                    )
+                    starredMessagesDB.insertOrUpdate(starredMessage)
+                    starredMessageKeys.add(message.getStarredKey())
+                }
+            }
+
+            runOnUiThread {
+                getOrCreateThreadAdapter().updateStarredKeys(starredMessageKeys.toSet())
+                if (isStarredOnlyFilterActive) {
+                    setupAdapter()
+                }
+            }
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, resultData: Intent?) {
@@ -463,6 +531,7 @@ class ThreadActivity : SimpleActivity() {
                 messages = messages.takeLast(MESSAGES_LIMIT)
             }
 
+            loadStarredMessageKeys()
             setupParticipants()
             setupAdapter()
 
@@ -504,6 +573,8 @@ class ThreadActivity : SimpleActivity() {
                 }
                 messages = messages.toSortedMessages()
             }
+
+            loadStarredMessageKeys()
 
             val providerParticipantsChanged = reconcileProviderParticipants()
             val hasParticipantWithoutName = participants.any { contact ->
@@ -621,6 +692,7 @@ class ThreadActivity : SimpleActivity() {
             threadItems = latestThreadItems
             refreshMenuItems()
             getOrCreateThreadAdapter().apply {
+                starredKeys = starredMessageKeys.toSet()
                 val layoutManager = binding.threadMessagesList.layoutManager as LinearLayoutManager
                 val lastPosition = itemCount - 1
                 val lastVisiblePosition = layoutManager.findLastVisibleItemPosition()
@@ -746,6 +818,8 @@ class ThreadActivity : SimpleActivity() {
                     restoreMessageFromRecycleBin(messageId)
                 } else {
                     deleteMessage(messageId, message.isMMS)
+                    starredMessagesDB.delete(messageId, message.isMMS)
+                    starredMessageKeys.remove(message.getStarredKey())
                 }
             }
         }
@@ -1341,6 +1415,7 @@ class ThreadActivity : SimpleActivity() {
     }
 
     @SuppressLint("MissingPermission")
+    @Suppress("CyclomaticComplexMethod")
     private fun getThreadItems(): List<ThreadItem> {
         if (isFinishing) {
             return emptyList()
@@ -1351,6 +1426,12 @@ class ThreadActivity : SimpleActivity() {
         if (pending != null && messageSnapshot.none { it.id == DELAYED_MESSAGE_ID }) {
             messageSnapshot = (messageSnapshot + buildDelayedMessage(pending.text, pending.subscriptionId))
                 .toSortedMessages()
+        }
+
+        if (isStarredOnlyFilterActive) {
+            messageSnapshot = messageSnapshot.filter { message ->
+                message.id == DELAYED_MESSAGE_ID || starredMessageKeys.contains(message.getStarredKey())
+            }
         }
         val items = ArrayList<ThreadItem>()
 
@@ -2001,6 +2082,7 @@ class ThreadActivity : SimpleActivity() {
         }
     }
 
+    @Suppress("CyclomaticComplexMethod")
     @Subscribe(threadMode = ThreadMode.ASYNC)
     fun refreshMessages(@Suppress("unused") event: Events.RefreshMessages) {
         if (isRecycleBin) {
@@ -2048,6 +2130,7 @@ class ThreadActivity : SimpleActivity() {
                 messagesDB.insertOrIgnore(latestMessage)
             }
 
+        loadStarredMessageKeys()
         setupAdapter()
         runOnUiThread {
             if (providerParticipantsChanged) {
