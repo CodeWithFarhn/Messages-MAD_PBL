@@ -72,6 +72,7 @@ import org.fossify.messages.extensions.isVideoMimeType
 import org.fossify.messages.extensions.launchViewIntent
 import org.fossify.messages.extensions.startContactDetailsIntent
 import org.fossify.messages.extensions.subscriptionManagerCompat
+import org.fossify.messages.helpers.DELAYED_MESSAGE_ID
 import org.fossify.messages.helpers.EXTRA_VCARD_URI
 import org.fossify.messages.helpers.THREAD_DATE_TIME
 import org.fossify.messages.helpers.THREAD_RECEIVED_MESSAGE
@@ -193,7 +194,7 @@ class ThreadAdapter(
                 is ThreadDateTime -> setupDateTime(itemView, item)
                 is ThreadError -> setupThreadError(itemView)
                 is ThreadSent -> setupThreadSuccess(itemView, item.delivered)
-                is ThreadSending -> setupThreadSending(itemView)
+                is ThreadSending -> setupThreadSending(itemView, item)
                 is Message -> setupView(holder, itemView, item)
             }
         }
@@ -478,7 +479,7 @@ class ThreadAdapter(
                 setTextColor(contrastColor)
                 setLinkTextColor(contrastColor)
 
-                if (message.isScheduled) {
+                if (message.isScheduled || message.id == DELAYED_MESSAGE_ID) {
                     typeface = Typeface.create(FontHelper.getTypeface(activity), Typeface.ITALIC)
                     val scheduledDrawable = AppCompatResources.getDrawable(activity, org.fossify.commons.R.drawable.ic_clock_vector)?.apply {
                         applyColorFilter(contrastColor)
@@ -637,10 +638,27 @@ class ThreadAdapter(
         binding.threadError.setTextSize(TypedValue.COMPLEX_UNIT_PX, fontSize - 4)
     }
 
-    private fun setupThreadSending(view: View) {
-        ItemThreadSendingBinding.bind(view).threadSending.apply {
+    private fun setupThreadSending(view: View, item: ThreadSending) {
+        val binding = ItemThreadSendingBinding.bind(view)
+        binding.threadSending.apply {
             setTextSize(TypedValue.COMPLEX_UNIT_PX, fontSize)
             setTextColor(textColor)
+        }
+
+        if (item.remainingSeconds > 0) {
+            val primaryColor = activity.getProperPrimaryColor()
+            binding.threadSending.text = activity.getString(R.string.sending_in_n_seconds, item.remainingSeconds)
+            binding.threadSendingCancel.apply {
+                beVisible()
+                setTextSize(TypedValue.COMPLEX_UNIT_PX, fontSize)
+                setTextColor(primaryColor)
+                setOnClickListener {
+                    (activity as? ThreadActivity)?.cancelPendingSend()
+                }
+            }
+        } else {
+            binding.threadSending.text = activity.getString(R.string.sending)
+            binding.threadSendingCancel.beGone()
         }
     }
 
@@ -676,7 +694,7 @@ private class ThreadItemDiffCallback : DiffUtil.ItemCallback<ThreadItem>() {
     override fun areContentsTheSame(oldItem: ThreadItem, newItem: ThreadItem): Boolean {
         if (oldItem::class.java != newItem::class.java) return false
         return when (oldItem) {
-            is ThreadSending -> true
+            is ThreadSending -> oldItem.remainingSeconds == (newItem as ThreadSending).remainingSeconds
             is ThreadDateTime -> oldItem.simID == (newItem as ThreadDateTime).simID
             is ThreadError -> oldItem.messageText == (newItem as ThreadError).messageText
             is ThreadSent -> oldItem.delivered == (newItem as ThreadSent).delivered

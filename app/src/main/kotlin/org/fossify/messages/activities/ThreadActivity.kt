@@ -50,7 +50,6 @@ import androidx.core.view.updateLayoutParams
 import androidx.documentfile.provider.DocumentFile
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.snackbar.Snackbar
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import org.fossify.commons.dialogs.ConfirmationDialog
@@ -162,6 +161,7 @@ import org.fossify.messages.helpers.AudioPlayerManager
 import org.fossify.messages.helpers.CAPTURE_AUDIO_INTENT
 import org.fossify.messages.helpers.CAPTURE_PHOTO_INTENT
 import org.fossify.messages.helpers.CAPTURE_VIDEO_INTENT
+import org.fossify.messages.helpers.DELAYED_MESSAGE_ID
 import org.fossify.messages.helpers.FILE_SIZE_NONE
 import org.fossify.messages.helpers.IS_LAUNCHED_FROM_SHORTCUT
 import org.fossify.messages.helpers.IS_RECYCLE_BIN
@@ -236,7 +236,6 @@ class ThreadActivity : SimpleActivity() {
     private var pendingSend: PendingSend? = null
     private val sendDelayHandler = Handler(Looper.getMainLooper())
     private var sendDelayRunnable: Runnable? = null
-    private var sendDelaySnackbar: Snackbar? = null
 
     private val binding by viewBinding(ActivityThreadBinding::inflate)
 
@@ -1376,7 +1375,12 @@ class ThreadActivity : SimpleActivity() {
             }
 
             if (message.type == Telephony.Sms.MESSAGE_TYPE_OUTBOX) {
-                items.add(ThreadSending(message.id))
+                val remaining = if (message.id == DELAYED_MESSAGE_ID) {
+                    pendingSend?.remainingSeconds ?: 0
+                } else {
+                    0
+                }
+                items.add(ThreadSending(message.id, remaining))
             }
 
             if (!message.read) {
@@ -1724,51 +1728,60 @@ class ThreadActivity : SimpleActivity() {
         return text.isNotEmpty() && !isMmsMessage(text)
     }
 
+    private fun buildDelayedMessage(text: String, subscriptionId: Int): Message {
+        return Message(
+            id = DELAYED_MESSAGE_ID,
+            body = text,
+            type = Telephony.Sms.MESSAGE_TYPE_OUTBOX,
+            status = Telephony.Sms.STATUS_NONE,
+            participants = ArrayList(participants),
+            date = (System.currentTimeMillis() / 1000).toInt(),
+            read = true,
+            threadId = threadId,
+            isMMS = false,
+            attachment = null,
+            senderPhoneNumber = "",
+            senderName = "",
+            senderPhotoUri = "",
+            subscriptionId = subscriptionId,
+            isScheduled = false
+        )
+    }
+
     private fun scheduleDelayedSend(text: String, subscriptionId: Int, delaySeconds: Int) {
         val pending = PendingSend(text, subscriptionId, threadId, delaySeconds)
         pendingSend = pending
 
-        hideKeyboard()
-        binding.messageHolder.threadTypeMessage.clearFocus()
         clearCurrentMessage()
 
-        val snackbar = Snackbar.make(
-            binding.root,
-            getString(R.string.sending_in_n_seconds, delaySeconds),
-            Snackbar.LENGTH_INDEFINITE
-        )
-        snackbar.anchorView = binding.messageHolder.root
-        snackbar.setActionTextColor(getProperPrimaryColor())
-        snackbar.setAction(org.fossify.commons.R.string.cancel) {
-            cancelPendingSend()
+        val pendingMessage = buildDelayedMessage(text, subscriptionId)
+        val updatedMessages = messages.toMutableList()
+        updatedMessages.removeAll { it.id == DELAYED_MESSAGE_ID }
+        updatedMessages.add(pendingMessage)
+        messages = updatedMessages.toSortedMessages()
+        val newItems = getThreadItems()
+        runOnUiThread {
+            threadItems = newItems
+            getOrCreateThreadAdapter().updateMessages(newItems, newItems.lastIndex)
+            scrollToBottom()
         }
-        snackbar.addCallback(object : Snackbar.Callback() {
-            override fun onDismissed(transientBottomBar: Snackbar?, event: Int) {
-                if (event == DISMISS_EVENT_SWIPE) {
-                    flushPendingSend()
-                }
-            }
-        })
-        snackbar.show()
-        sendDelaySnackbar = snackbar
 
         val runnable = object : Runnable {
             override fun run() {
                 val currentPending = pendingSend ?: return
                 currentPending.remainingSeconds--
                 if (currentPending.remainingSeconds <= 0) {
-                    sendDelaySnackbar?.dismiss()
-                    sendDelaySnackbar = null
                     sendDelayRunnable = null
                     val toSend = pendingSend
                     pendingSend = null
+                    removeDelayedMessageFromList()
                     if (toSend != null) {
                         sendNormalMessage(toSend.text, toSend.subscriptionId, clearInput = false)
                     }
                 } else {
-                    sendDelaySnackbar?.setText(
-                        getString(R.string.sending_in_n_seconds, currentPending.remainingSeconds)
-                    )
+                    val refreshedItems = getThreadItems()
+                    threadItems = refreshedItems
+                    getOrCreateThreadAdapter().updateMessages(refreshedItems)
                     sendDelayHandler.postDelayed(this, 1000L)
                 }
             }
@@ -1777,14 +1790,14 @@ class ThreadActivity : SimpleActivity() {
         sendDelayHandler.postDelayed(runnable, 1000L)
     }
 
-    private fun cancelPendingSend() {
+    fun cancelPendingSend() {
         sendDelayRunnable?.let { sendDelayHandler.removeCallbacks(it) }
         sendDelayRunnable = null
-        sendDelaySnackbar?.dismiss()
-        sendDelaySnackbar = null
 
         val pending = pendingSend ?: return
         pendingSend = null
+
+        removeDelayedMessageFromList()
 
         val currentText = binding.messageHolder.threadTypeMessage.text?.toString().orEmpty()
         val restoredText = if (currentText.isEmpty()) {
@@ -1800,13 +1813,26 @@ class ThreadActivity : SimpleActivity() {
     private fun flushPendingSend() {
         sendDelayRunnable?.let { sendDelayHandler.removeCallbacks(it) }
         sendDelayRunnable = null
-        sendDelaySnackbar?.dismiss()
-        sendDelaySnackbar = null
 
         val pending = pendingSend ?: return
         pendingSend = null
 
+        removeDelayedMessageFromList()
+
         sendNormalMessage(pending.text, pending.subscriptionId, clearInput = false)
+    }
+
+    private fun removeDelayedMessageFromList() {
+        if (messages.any { it.id == DELAYED_MESSAGE_ID }) {
+            val updatedMessages = messages.toMutableList()
+            updatedMessages.removeAll { it.id == DELAYED_MESSAGE_ID }
+            messages = updatedMessages.toSortedMessages()
+            val refreshedItems = getThreadItems()
+            runOnUiThread {
+                threadItems = refreshedItems
+                getOrCreateThreadAdapter().updateMessages(refreshedItems)
+            }
+        }
     }
 
     private fun clearCurrentMessage() {

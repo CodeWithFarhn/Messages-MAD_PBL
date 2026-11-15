@@ -206,6 +206,7 @@
     <string name="send_delay_5_seconds">5 seconds</string>
     <string name="send_delay_10_seconds">10 seconds</string>
     <string name="sending_in_n_seconds">Sending in %ds…</string>
+    <string name="cancel">Cancel</string>
     <!--
         Haven't found some strings? There's more at
         https://github.com/FossifyOrg/Commons/tree/master/commons/src/main/res
