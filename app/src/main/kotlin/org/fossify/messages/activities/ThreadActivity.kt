@@ -1346,7 +1346,12 @@ class ThreadActivity : SimpleActivity() {
             return emptyList()
         }
 
-        val messageSnapshot = messages.toSortedMessages()
+        var messageSnapshot = messages.toSortedMessages()
+        val pending = pendingSend
+        if (pending != null && messageSnapshot.none { it.id == DELAYED_MESSAGE_ID }) {
+            messageSnapshot = (messageSnapshot + buildDelayedMessage(pending.text, pending.subscriptionId))
+                .toSortedMessages()
+        }
         val items = ArrayList<ThreadItem>()
 
         val subscriptionIdToSimId = HashMap<Int, String>()
@@ -1849,6 +1854,11 @@ class ThreadActivity : SimpleActivity() {
         } else {
             updatedMessages.add(message)
         }
+        pendingSend?.let { pendingMsg ->
+            if (updatedMessages.none { it.id == DELAYED_MESSAGE_ID }) {
+                updatedMessages.add(buildDelayedMessage(pendingMsg.text, pendingMsg.subscriptionId))
+            }
+        }
         messages = updatedMessages.toSortedMessages()
 
         val newItems = getThreadItems()
@@ -2025,6 +2035,11 @@ class ThreadActivity : SimpleActivity() {
             if (config.useRecycleBin) {
                 val recycledMessages = messagesDB.getThreadMessagesFromRecycleBin(threadId).toSet()
                 removeAll(recycledMessages)
+            }
+            pendingSend?.let { pendingMsg ->
+                if (none { it.id == DELAYED_MESSAGE_ID }) {
+                    add(buildDelayedMessage(pendingMsg.text, pendingMsg.subscriptionId))
+                }
             }
         }.toSortedMessages()
 
